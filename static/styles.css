@@ -39,3 +39,14 @@ body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
 #summary:not(.hidden) {
   animation: fadeSlideIn 0.3s ease-out;
 }
+
+/* Pestañas del dashboard */
+.tab { display: inline-flex; align-items: center; gap: .4rem; padding: .6rem .9rem; font-size: .875rem; font-weight: 600;
+  color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tab:hover { color: #1e293b; }
+.dark .tab:hover { color: #e2e8f0; }
+.tab-active { color: #2563eb; border-bottom-color: #2563eb; }
+.dark .tab-active { color: #60a5fa; border-bottom-color: #60a5fa; }
+.tab-count:empty { display: none; }
+.tab-count { font-size: .7rem; padding: 0 .4rem; border-radius: 9999px; background: #e2e8f0; color: #475569; }
+.dark .tab-count { background: #1e293b; color: #94a3b8; }

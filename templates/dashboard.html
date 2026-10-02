@@ -40,141 +40,183 @@
       </div>
     </aside>
 
+
     <div class="flex-1 flex flex-col min-w-0">
-      <!-- Topbar: selección de cliente y cuenta -->
-      <header class="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-3 px-4 md:px-6 py-3">
-        <h1 class="text-sm md:text-base font-bold mr-auto">Dashboard de inventario</h1>
-        <label class="text-xs text-slate-500">Cliente
-          <select id="clientSelect" class="ml-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm"></select>
-        </label>
-        <label class="text-xs text-slate-500">Cuenta
-          <select id="accountSelect" class="ml-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm"></select>
-        </label>
-        <button id="btnRefresh" title="Actualizar" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
-        <button id="btnDark" title="Modo claro/oscuro" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"><i data-lucide="moon" class="w-4 h-4"></i></button>
-      </header>
-
-      <main class="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-        <div id="alerts" class="space-y-3"></div>
-
-        <!-- KPIs -->
-        <section id="kpis" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3"></section>
-
-        <!-- Proyectos y regiones -->
-        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
-          <div class="flex flex-wrap items-center gap-2 text-sm" id="accountInfo"></div>
-        </section>
-
-        <!-- Cobertura del último escaneo -->
-        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-          <div class="flex flex-wrap items-baseline gap-2 mb-3">
-            <h2 class="font-bold text-sm mr-auto">Cobertura del último escaneo</h2>
-            <span class="text-xs text-slate-500">Los servicios sin permiso conservan sus recursos anteriores: nunca se marcan como eliminados.</span>
+      <!-- ============ CABECERA: qué estoy viendo y acción principal ============ -->
+      <header class="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 md:px-6 py-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="mr-auto">
+            <h1 class="text-base font-bold leading-tight">Inventario de Huawei Cloud</h1>
+            <p class="text-xs text-slate-500">Elige el cliente y la cuenta que quieres revisar</p>
           </div>
-          <div id="coverage" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2"></div>
-        </section>
-
-        <!-- Distribución -->
-        <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-            <h2 class="font-bold text-sm mb-3">Recursos por servicio</h2>
-            <div id="byService" class="space-y-2"></div>
-          </div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-            <h2 class="font-bold text-sm mb-3">Recursos por región</h2>
-            <div id="byRegion" class="space-y-2"></div>
-          </div>
-        </section>
-
-        <!-- Escaneos -->
-        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          <div class="flex flex-wrap items-center gap-3 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-            <h2 class="font-bold text-sm mr-auto">Escaneos</h2>
-            <button id="btnScan" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+          <label class="flex flex-col text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cliente
+            <select id="clientSelect" class="mt-0.5 min-w-[9rem] rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-800 dark:text-slate-200"></select>
+          </label>
+          <label class="flex flex-col text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cuenta
+            <select id="accountSelect" class="mt-0.5 min-w-[9rem] rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm font-normal normal-case tracking-normal text-slate-800 dark:text-slate-200"></select>
+          </label>
+          <div class="flex items-center gap-2 self-end">
+            <button id="btnRefresh" title="Actualizar datos" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+            <button id="btnDark" title="Modo claro/oscuro" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"><i data-lucide="moon" class="w-4 h-4"></i></button>
+            <button id="btnScan" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
               <i data-lucide="radar" class="w-4 h-4"></i>Escanear ahora
             </button>
           </div>
-          <div id="scanProgress" class="hidden px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-            <div class="flex justify-between text-xs mb-1"><span id="scanProgressLabel"></span><span id="scanProgressPct"></span></div>
-            <div class="h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden"><div id="scanProgressBar" class="h-2 bg-blue-600 transition-all" style="width:0%"></div></div>
-            <div id="scanTasks" class="mt-3 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2 text-xs"></div>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
-              <thead class="bg-slate-50 dark:bg-slate-800 text-[11px] uppercase text-slate-500">
-                <tr><th class="px-4 py-2 text-left">#</th><th class="px-4 py-2 text-left">Estado</th><th class="px-4 py-2 text-left">Inicio</th>
-                  <th class="px-4 py-2 text-right">Duración</th><th class="px-4 py-2 text-right">Recursos</th><th class="px-4 py-2 text-right">Nuevos</th>
-                  <th class="px-4 py-2 text-right">Modif.</th><th class="px-4 py-2 text-right">Elim.</th><th class="px-4 py-2 text-right">Errores</th>
-                  <th class="px-4 py-2 text-right">Avisos</th><th class="px-4 py-2"></th></tr>
-              </thead>
-              <tbody id="scanHistory" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
-            </table>
-          </div>
-        </section>
+        </div>
+      </header>
 
-        <!-- Programaciones -->
-        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          <div class="flex flex-wrap items-baseline gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-            <h2 class="font-bold text-sm mr-auto">Escaneos programados</h2>
-            <span class="text-xs text-slate-500">Se ejecutan con <code class="font-mono">python manage.py worker</code></span>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
-              <thead class="bg-slate-50 dark:bg-slate-800 text-[11px] uppercase text-slate-500">
-                <tr><th class="px-4 py-2 text-left">Nombre</th><th class="px-4 py-2 text-left">Activa</th><th class="px-4 py-2 text-left">Cada</th>
-                  <th class="px-4 py-2 text-left">Servicios</th><th class="px-4 py-2 text-left">Próxima</th><th class="px-4 py-2 text-left">Último resultado</th></tr>
-              </thead>
-              <tbody id="schedules" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
-            </table>
-          </div>
-        </section>
+      <main class="flex-1 overflow-y-auto">
+        <div class="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
+          <div id="alerts" class="space-y-3"></div>
 
-        <!-- Diferencias -->
-        <section id="diffPanel" class="hidden bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-          <div class="flex flex-wrap items-center gap-3 mb-3">
-            <h2 class="font-bold text-sm mr-auto" id="diffTitle">Diferencias</h2>
-            <a id="diffExport" class="text-xs font-semibold text-blue-600 hover:underline" href="#">Exportar Excel</a>
-            <button id="diffClose" class="text-xs text-slate-500 hover:underline">Cerrar</button>
-          </div>
-          <div id="diffSummary" class="flex flex-wrap gap-2 mb-3"></div>
-          <div id="diffItems" class="max-h-96 overflow-y-auto text-sm divide-y divide-slate-100 dark:divide-slate-800"></div>
-        </section>
+          <!-- ============ 1. ESTADO GENERAL EN UNA FRASE ============ -->
+          <section id="health" class="rounded-2xl border p-4 md:p-5 flex items-start gap-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <div id="healthIcon" class="shrink-0 w-11 h-11 rounded-xl grid place-items-center bg-slate-100 dark:bg-slate-800"><i data-lucide="loader" class="w-5 h-5"></i></div>
+            <div class="min-w-0 flex-1">
+              <h2 id="healthTitle" class="font-bold">Cargando…</h2>
+              <p id="healthText" class="text-sm text-slate-600 dark:text-slate-400"></p>
+              <p id="accountInfo" class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500"></p>
+            </div>
+          </section>
 
-        <!-- Recursos -->
-        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          <div class="flex flex-wrap items-center gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-            <h2 class="font-bold text-sm mr-2">Recursos</h2>
-            <input id="fSearch" type="search" placeholder="Buscar nombre o ID..." class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-sm" />
-            <select id="fService" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm"><option value="">Todos los servicios</option></select>
-            <select id="fRegion" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm"><option value="">Todas las regiones</option></select>
-            <select id="fState" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm">
-              <option value="active">Activos</option><option value="deleted">Eliminados</option><option value="all">Todos</option>
-            </select>
-            <select id="fSort" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5 text-sm">
-              <option value="">Orden: servicio</option><option value="name">Nombre</option><option value="-last_seen">Visto recientemente</option>
-              <option value="-first_seen">Nuevos primero</option><option value="region">Región</option>
-            </select>
-            <span class="ml-auto flex gap-2 text-xs">
-              <a id="expXlsx" href="#" class="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline">Excel</a>
-              <a id="expCsv" href="#" class="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline">CSV</a>
-              <a id="expSummary" href="#" class="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline">Resumen</a>
-            </span>
+          <!-- Progreso del escaneo en curso -->
+          <section id="scanProgress" class="hidden rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/20 p-4">
+            <div class="flex justify-between text-sm mb-2"><span id="scanProgressLabel" class="font-semibold"></span><span id="scanProgressPct" class="text-slate-500"></span></div>
+            <div class="h-2 rounded-full bg-blue-100 dark:bg-slate-800 overflow-hidden"><div id="scanProgressBar" class="h-2 bg-blue-600 transition-all" style="width:0%"></div></div>
+            <details class="mt-3"><summary class="text-xs text-blue-700 dark:text-blue-300 cursor-pointer">Ver detalle por servicio y región</summary>
+              <div id="scanTasks" class="mt-2 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2 text-xs"></div></details>
+          </section>
+
+          <!-- ============ 2. CIFRAS CLAVE ============ -->
+          <section id="kpis" class="grid grid-cols-2 xl:grid-cols-4 gap-3"></section>
+
+          <!-- ============ 3. PESTAÑAS ============ -->
+          <nav id="tabs" class="flex gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto overflow-y-hidden" role="tablist">
+            <button data-tab="summary" role="tab" class="tab">Resumen</button>
+            <button data-tab="resources" role="tab" class="tab">Recursos <span id="tabCountResources" class="tab-count"></span></button>
+            <button data-tab="history" role="tab" class="tab">Historial de escaneos</button>
+            <button data-tab="schedules" role="tab" class="tab">Programaciones <span id="tabCountSchedules" class="tab-count"></span></button>
+          </nav>
+
+          <!-- ---------- Pestaña: Resumen ---------- -->
+          <div data-panel="summary" class="space-y-5">
+            <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <div class="mb-4">
+                <h2 class="font-bold">¿Qué se pudo inventariar?</h2>
+                <p class="text-xs text-slate-500">Resultado del último escaneo, servicio por servicio.</p>
+              </div>
+              <div id="coverageProblems" class="space-y-2"></div>
+              <div id="coverageOk" class="mt-4"></div>
+            </section>
+
+            <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                <h2 class="font-bold">Recursos por servicio</h2>
+                <p class="text-xs text-slate-500 mb-3">Pulsa una barra para ver esos recursos.</p>
+                <div id="byService" class="space-y-2"></div>
+              </div>
+              <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                <h2 class="font-bold">Recursos por región</h2>
+                <p class="text-xs text-slate-500 mb-3">Pulsa una barra para ver esos recursos.</p>
+                <div id="byRegion" class="space-y-2"></div>
+              </div>
+            </section>
           </div>
-          <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
-              <thead class="bg-slate-50 dark:bg-slate-800 text-[11px] uppercase text-slate-500">
-                <tr><th class="px-4 py-2 text-left">Nombre</th><th class="px-4 py-2 text-left">Servicio</th><th class="px-4 py-2 text-left">Tipo</th>
-                  <th class="px-4 py-2 text-left">Estado</th><th class="px-4 py-2 text-left">Región</th><th class="px-4 py-2 text-left">Última vez visto</th></tr>
-              </thead>
-              <tbody id="resources" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
-            </table>
+
+          <!-- ---------- Pestaña: Recursos ---------- -->
+          <div data-panel="resources" class="hidden">
+            <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <div class="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <div class="relative flex-1 min-w-[14rem]">
+                    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                    <input id="fSearch" type="search" placeholder="Buscar por nombre o ID…" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 pl-9 pr-3 py-2 text-sm" />
+                  </div>
+                  <div class="flex gap-1 text-xs">
+                    <a id="expXlsx" href="#" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400 font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-950/30"><i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>Excel</a>
+                    <a id="expCsv" href="#" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400 font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-950/30"><i data-lucide="file-text" class="w-3.5 h-3.5"></i>CSV</a>
+                    <a id="expSummary" href="#" title="Resumen por servicio y región" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400 font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-950/30"><i data-lucide="sheet" class="w-3.5 h-3.5"></i>Resumen</a>
+                  </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-sm">
+                  <select id="fService" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5"><option value="">Todos los servicios</option></select>
+                  <select id="fRegion" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5"><option value="">Todas las regiones</option></select>
+                  <select id="fState" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5">
+                    <option value="active">Solo existentes</option><option value="deleted">Solo eliminados</option><option value="all">Existentes y eliminados</option>
+                  </select>
+                  <select id="fSort" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2 py-1.5">
+                    <option value="">Ordenar por servicio</option><option value="name">Ordenar por nombre</option><option value="-last_seen">Vistos más recientemente</option>
+                    <option value="-first_seen">Más nuevos primero</option><option value="region">Ordenar por región</option>
+                  </select>
+                  <button id="fClear" class="text-xs text-blue-600 hover:underline ml-1">Quitar filtros</button>
+                </div>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                  <thead class="bg-slate-50 dark:bg-slate-800/60 text-[11px] uppercase tracking-wide text-slate-500">
+                    <tr><th class="px-4 py-2.5 text-left">Nombre</th><th class="px-4 py-2.5 text-left">Servicio</th><th class="px-4 py-2.5 text-left">Estado</th>
+                      <th class="px-4 py-2.5 text-left">Región</th><th class="px-4 py-2.5 text-left">Visto por última vez</th></tr>
+                  </thead>
+                  <tbody id="resources" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+                </table>
+              </div>
+              <div class="flex items-center justify-between px-4 py-3 text-xs text-slate-500 border-t border-slate-200 dark:border-slate-800">
+                <span id="pageInfo"></span>
+                <span class="flex gap-2"><button id="prevPage" class="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 disabled:opacity-40">← Anterior</button>
+                  <button id="nextPage" class="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 disabled:opacity-40">Siguiente →</button></span>
+              </div>
+            </section>
           </div>
-          <div class="flex items-center justify-between px-5 py-3 text-xs text-slate-500 border-t border-slate-200 dark:border-slate-800">
-            <span id="pageInfo"></span>
-            <span class="flex gap-2"><button id="prevPage" class="px-3 py-1 rounded border border-slate-300 dark:border-slate-700 disabled:opacity-40">Anterior</button>
-              <button id="nextPage" class="px-3 py-1 rounded border border-slate-300 dark:border-slate-700 disabled:opacity-40">Siguiente</button></span>
+
+          <!-- ---------- Pestaña: Historial ---------- -->
+          <div data-panel="history" class="hidden space-y-5">
+            <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+                <h2 class="font-bold">Escaneos realizados</h2>
+                <p class="text-xs text-slate-500">Cada escaneo es una foto del inventario. Usa «Ver cambios» para saber qué cambió respecto al anterior.</p>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                  <thead class="bg-slate-50 dark:bg-slate-800/60 text-[11px] uppercase tracking-wide text-slate-500">
+                    <tr><th class="px-4 py-2.5 text-left">#</th><th class="px-4 py-2.5 text-left">Resultado</th><th class="px-4 py-2.5 text-left">Fecha</th>
+                      <th class="px-4 py-2.5 text-right">Duración</th><th class="px-4 py-2.5 text-right">Recursos</th>
+                      <th class="px-4 py-2.5 text-left">Cambios</th><th class="px-4 py-2.5 text-left">Incidencias</th><th class="px-4 py-2.5"></th></tr>
+                  </thead>
+                  <tbody id="scanHistory" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="diffPanel" class="hidden bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <div class="flex flex-wrap items-center gap-3 mb-3">
+                <h2 class="font-bold mr-auto" id="diffTitle">Cambios</h2>
+                <a id="diffExport" class="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline" href="#"><i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>Exportar a Excel</a>
+                <button id="diffClose" class="text-xs text-slate-500 hover:underline">Cerrar</button>
+              </div>
+              <div id="diffSummary" class="flex flex-wrap gap-2 mb-3"></div>
+              <div id="diffItems" class="max-h-[28rem] overflow-y-auto text-sm divide-y divide-slate-100 dark:divide-slate-800"></div>
+            </section>
           </div>
-        </section>
+
+          <!-- ---------- Pestaña: Programaciones ---------- -->
+          <div data-panel="schedules" class="hidden">
+            <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+                <h2 class="font-bold">Escaneos automáticos</h2>
+                <p class="text-xs text-slate-500">Se ejecutan solos mientras esté en marcha <code class="font-mono">python manage.py worker</code>.</p>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                  <thead class="bg-slate-50 dark:bg-slate-800/60 text-[11px] uppercase tracking-wide text-slate-500">
+                    <tr><th class="px-4 py-2.5 text-left">Nombre</th><th class="px-4 py-2.5 text-left">Estado</th><th class="px-4 py-2.5 text-left">Frecuencia</th>
+                      <th class="px-4 py-2.5 text-left">Servicios</th><th class="px-4 py-2.5 text-left">Próxima ejecución</th><th class="px-4 py-2.5 text-left">Último resultado</th></tr>
+                  </thead>
+                  <tbody id="schedules" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </div>
       </main>
     </div>
   </div>
@@ -183,10 +225,10 @@
   <div id="drawerOverlay" class="hidden fixed inset-0 bg-black/30 z-40"></div>
   <aside id="drawer" class="fixed right-0 top-0 h-full w-full sm:w-[32rem] bg-white dark:bg-slate-900 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 overflow-y-auto">
     <div class="flex items-center justify-between px-5 h-16 border-b border-slate-200 dark:border-slate-800">
-      <h3 class="font-bold" id="drawerTitle">Detalle</h3>
+      <h3 class="font-bold truncate" id="drawerTitle">Detalle</h3>
       <button id="drawerClose" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i></button>
     </div>
-    <div id="drawerBody" class="p-5 space-y-4 text-sm"></div>
+    <div id="drawerBody" class="p-5 space-y-5 text-sm"></div>
   </aside>
 
   <script src="/static/dashboard.js"></script>
