@@ -23,6 +23,7 @@ from core.crypto import CryptoConfigurationError, SecretCipher, SecretDecryption
 from db.session import DatabaseNotConfiguredError, get_db
 from routers.common import install_safe_validation_errors, inventory_response
 from routers.deps import _keyring_from_env, get_cipher  # noqa: F401  (reexportados)
+from routers.inventory_api import router as inventory_api_router
 from routers.scans import router as scans_router
 from tenancy import accounts, clients, projects
 from tenancy.errors import TenancyError
@@ -172,6 +173,7 @@ def install_admin_api(app: FastAPI) -> None:
     app.include_router(router)
     app.include_router(inventory_router)
     app.include_router(scans_router)
+    app.include_router(inventory_api_router)
 
     @app.exception_handler(TenancyError)
     async def _tenancy(request: Request, exc: TenancyError):

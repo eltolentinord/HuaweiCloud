@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from db.models import CloudAccount, ScanRun, ScanTask
@@ -29,9 +29,18 @@ def get_for_client(session: Session, client_id: uuid.UUID, run_id: uuid.UUID) ->
     return session.scalar(query)
 
 
-def list_for_account(session: Session, account_id: uuid.UUID, *, limit: int = 20) -> List[ScanRun]:
-    return list(session.scalars(select(ScanRun).where(ScanRun.account_id == account_id)
-                                .order_by(ScanRun.created_at.desc()).limit(limit)))
+def list_for_account(session: Session, account_id: uuid.UUID, *, limit: int = 20, offset: int = 0,
+                     status: Optional[str] = None) -> List[ScanRun]:
+    query = select(ScanRun).where(ScanRun.account_id == account_id)
+    if status:
+        query = query.where(ScanRun.status == status)
+    return list(session.scalars(query.order_by(ScanRun.sequence.desc()).limit(limit).offset(offset)))
+
+
+def next_sequence(session: Session, account_id: uuid.UUID) -> int:
+    """Siguiente número de escaneo de la cuenta (único por cuenta: ver UniqueConstraint)."""
+    current = session.scalar(select(func.max(ScanRun.sequence)).where(ScanRun.account_id == account_id))
+    return int(current or 0) + 1
 
 
 def active_for_account(session: Session, account_id: uuid.UUID) -> Optional[ScanRun]:

@@ -26,8 +26,9 @@ from tenancy import accounts, clients, projects
 from tenancy.catalog_sync import sync_catalog
 
 EXPECTED_TABLES = {"alembic_version", "clients", "users", "user_client_roles", "cloud_accounts",
-                   "regions", "projects", "service_catalog", "scan_runs", "scan_tasks", "resources"}
-HEAD = "0004"
+                   "regions", "projects", "service_catalog", "scan_runs", "scan_tasks", "resources",
+                   "resource_changes"}
+HEAD = "0005"
 
 
 def alembic_config(url: str) -> Config:
@@ -74,7 +75,7 @@ class TestMigrations(PostgresTestCase):
         gin = {i["name"]: i for i in inspector.get_indexes("resources")}
         self.assertEqual(gin["ix_resources_tags"]["dialect_options"].get("postgresql_using"), "gin")
 
-        command.downgrade(alembic_config(self.url), "0001")  # deshace 0004, 0003 y 0002
+        command.downgrade(alembic_config(self.url), "0001")  # deshace 0005..0002
         self.assertNotIn("resources", inspect(self.engine).get_table_names())
         self.assertIn("cloud_accounts", inspect(self.engine).get_table_names())
         command.downgrade(alembic_config(self.url), "base")

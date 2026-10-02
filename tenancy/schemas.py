@@ -135,6 +135,7 @@ class ScanProgress(BaseModel):
 class ScanRunSummary(BaseModel):
     id: uuid.UUID
     account_id: uuid.UUID
+    sequence: int
     status: str
     trigger: str
     started_at: Optional[datetime]
@@ -232,3 +233,90 @@ class ResourcePage(BaseModel):
     limit: int
     offset: int
     items: List[ResourceOut]
+
+
+# ---------------------------------------------------- Fase 4: inventario e historial
+class Page(BaseModel):
+    """Envoltorio común de listas paginadas."""
+
+    total: int
+    limit: int
+    offset: int
+
+
+class ChangeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    resource_id: uuid.UUID
+    scan_run_id: uuid.UUID
+    change_type: str
+    service: str
+    resource_type: str
+    provider_id: str
+    region: str
+    name: Optional[str]
+    changed_fields: List[Dict[str, Any]]
+    created_at: datetime
+
+
+class ChangePage(Page):
+    items: List[ChangeOut]
+
+
+class ResourceDetailOut(ResourceOut):
+    scope_key: str
+    recent_changes: List[ChangeOut]
+
+
+class ScanRunPage(Page):
+    items: List[ScanRunSummary]
+
+
+class AccountStatsOut(BaseModel):
+    account_id: uuid.UUID
+    total_active: int
+    total_deleted: int
+    by_service: Dict[str, int]
+    by_region: Dict[str, int]
+    by_resource_type: Dict[str, int]
+    by_project: Dict[str, int]
+    by_status: Dict[str, int]
+    last_scan: Optional[ScanRunSummary]
+    last_scan_changes: Dict[str, int]
+
+
+class DiffItemOut(BaseModel):
+    resource_id: uuid.UUID
+    category: str
+    service: str
+    resource_type: str
+    provider_id: str
+    region: str
+    name: Optional[str]
+    events: List[str]
+    changed_fields: List[Dict[str, Any]]
+
+
+class CompareOut(BaseModel):
+    from_scan: ScanRunSummary
+    to_scan: ScanRunSummary
+    summary: Dict[str, Any]
+    total_items: int
+    items: List[DiffItemOut]
+
+
+class AccountOverviewOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    status: str
+    projects: int
+    regions: List[str]
+    total_active: int
+    total_deleted: int
+    last_scan: Optional[ScanRunSummary]
+
+
+class ClientOverviewOut(BaseModel):
+    client: ClientOut
+    accounts: List[AccountOverviewOut]

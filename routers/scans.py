@@ -4,7 +4,7 @@
 - POST /api/clients/{client_id}/accounts/{account_id}/scans     inicia un escaneo (202)
 - GET  /api/clients/{client_id}/accounts/{account_id}/scans     últimos escaneos
 - GET  /api/scans/{scan_id}?client_id=...                       estado, progreso y tareas
-- GET  /api/clients/{client_id}/accounts/{account_id}/resources inventario persistido
+(El inventario persistido y el historial están en ``routers/inventory_api.py``.)
 
 Sin login todavía: el cliente se indica explícitamente y TODAS las consultas se
 filtran por él (aislamiento). El escaneo se ejecuta con ``BackgroundTasks`` de
@@ -21,13 +21,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from core.crypto import SecretCipher
 from db.session import get_db, get_db_session_factory
-from repositories import resources as resources_repo
 from routers.deps import get_cipher
 from repositories import scans as scans_repo
 from scanning.engine import create_scan, execute_scan
 from tenancy.accounts import get_account
 from tenancy.errors import NotFoundError
-from tenancy.schemas import ResourceOut, ResourcePage, ScanIn, ScanRunOut, ScanRunSummary
+from tenancy.schemas import ScanIn, ScanRunOut, ScanRunSummary
 
 router = APIRouter(tags=["scans"])
 
@@ -52,9 +51,11 @@ def start_scan(client_id: uuid.UUID, account_id: uuid.UUID, background: Backgrou
 
 @router.get("/api/clients/{client_id}/accounts/{account_id}/scans", response_model=List[ScanRunSummary])
 def list_scans(client_id: uuid.UUID, account_id: uuid.UUID, limit: int = Query(20, ge=1, le=100),
-               db: Session = Depends(get_db)):
+               offset: int = Query(0, ge=0), status: Optional[str] = None, db: Session = Depends(get_db)):
+    """Historial de escaneos (más reciente primero). Mantiene el formato de lista de la 3A."""
     account = get_account(db, client_id, account_id)
-    return [ScanRunSummary.from_run(r) for r in scans_repo.list_for_account(db, account.id, limit=limit)]
+    runs = scans_repo.list_for_account(db, account.id, limit=limit, offset=offset, status=status)
+    return [ScanRunSummary.from_run(r) for r in runs]
 
 
 @router.get("/api/scans/{scan_id}", response_model=ScanRunOut)
@@ -64,17 +65,3 @@ def get_scan(scan_id: uuid.UUID, client_id: uuid.UUID = Query(..., description="
     if run is None:
         raise NotFoundError("Escaneo no encontrado.")
     return ScanRunOut.from_run(run, scans_repo.tasks(db, run.id))
-
-
-@router.get("/api/clients/{client_id}/accounts/{account_id}/resources", response_model=ResourcePage)
-def list_resources(client_id: uuid.UUID, account_id: uuid.UUID, service: Optional[str] = None,
-                   region: Optional[str] = None, resource_type: Optional[str] = None,
-                   project_id: Optional[uuid.UUID] = None, include_deleted: bool = False,
-                   include_raw: bool = False, limit: int = Query(100, ge=1, le=1000),
-                   offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
-    account = get_account(db, client_id, account_id)
-    rows, total = resources_repo.list_for_account(
-        db, account.id, service=service, region=region, resource_type=resource_type,
-        project_id=project_id, include_deleted=include_deleted, limit=limit, offset=offset)
-    return ResourcePage(total=total, limit=limit, offset=offset,
-                        items=[ResourceOut.from_row(r, include_raw=include_raw) for r in rows])

@@ -87,7 +87,7 @@ class TestConcurrencyOnPostgres(PostgresTestCase):
     def test_database_rejects_second_active_scan(self):
         self.new_scan()
         with self.factory() as session:
-            session.add(ScanRun(account_id=self.account_id, status="pending", trigger="api"))
+            session.add(ScanRun(account_id=self.account_id, sequence=999, status="pending", trigger="api"))
             with self.assertRaises(IntegrityError):
                 session.flush()
 

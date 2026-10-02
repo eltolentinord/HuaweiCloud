@@ -32,12 +32,20 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from core.models import Resource
-from core.serialization import fingerprint, parse_provider_datetime, redact_sensitive, redact_values
-from db.models import ACCOUNT_SCOPE_KEY, InventoryResource
+from core.serialization import (
+    canonical_json,
+    fingerprint,
+    parse_provider_datetime,
+    redact_sensitive,
+    redact_values,
+)
+from db.models import ACCOUNT_SCOPE_KEY, InventoryResource, ResourceChange
 
 Key = Tuple[str, str]
-_COMPARED_FIELDS = ("name", "status", "region", "enterprise_project_id", "provider_created_at",
-                    "tags", "attributes", "raw_hash")
+_SCALAR_FIELDS = ("name", "status", "region", "enterprise_project_id")
+_MAPPING_FIELDS = ("tags", "attributes")
+MAX_CHANGED_FIELDS = 50
+MAX_VALUE_LENGTH = 300
 
 
 def project_scope_key(project_id: uuid.UUID) -> str:
@@ -92,15 +100,51 @@ def _same_instant(a: Optional[datetime], b: Optional[datetime]) -> bool:
     return a == b
 
 
-def _changed(row: InventoryResource, values: Dict[str, Any]) -> bool:
-    for name in _COMPARED_FIELDS:
-        current, new = getattr(row, name), values[name]
-        if name == "provider_created_at":
-            if not _same_instant(current, new):
-                return True
-        elif current != new:
-            return True
-    return False
+def _short(value: Any) -> Any:
+    """Valor compacto para el historial (ya redactado): textos y JSON truncados."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    text = value if isinstance(value, str) else canonical_json(value)
+    if len(text) <= MAX_VALUE_LENGTH:
+        return value
+    return text[:MAX_VALUE_LENGTH] + "…"
+
+
+def field_diff(row: InventoryResource, values: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Campos normalizados que cambian (``attributes.x``, ``tags.y``...) con antes/después.
+
+    Un cambio que solo afecta a ``raw`` se registra como ``{"field": "raw"}`` con los
+    hashes abreviados: el contenido de ``raw`` no se duplica en el historial.
+    """
+    changes: List[Dict[str, Any]] = []
+
+    def add(name: str, before: Any, after: Any) -> None:
+        changes.append({"field": name, "before": _short(before), "after": _short(after)})
+
+    for name in _SCALAR_FIELDS:
+        if getattr(row, name) != values[name]:
+            add(name, getattr(row, name), values[name])
+    if not _same_instant(row.provider_created_at, values["provider_created_at"]):
+        add("provider_created_at", row.provider_created_at, values["provider_created_at"])
+    for mapping in _MAPPING_FIELDS:
+        old, new = getattr(row, mapping) or {}, values[mapping] or {}
+        for key in sorted(set(old) | set(new)):
+            if old.get(key) != new.get(key):
+                add(f"{mapping}.{key}", old.get(key), new.get(key))
+    if row.raw_hash != values["raw_hash"]:
+        add("raw", (row.raw_hash or "")[:12], values["raw_hash"][:12])
+    return changes[:MAX_CHANGED_FIELDS]
+
+
+def _event(row: InventoryResource, run_id: uuid.UUID, change_type: str, *, changed_fields=(),
+           raw_hash_before: Optional[str] = None) -> ResourceChange:
+    return ResourceChange(account_id=row.account_id, resource_id=row.id, scan_run_id=run_id,
+                          change_type=change_type, service=row.service, resource_type=row.resource_type,
+                          provider_id=row.provider_id, region=row.region or "", name=row.name,
+                          changed_fields=list(changed_fields), raw_hash_before=raw_hash_before,
+                          raw_hash_after=row.raw_hash if change_type != "deleted" else None)
 
 
 def index_for_scope(session: Session, account_id: uuid.UUID, scope_key: str,
@@ -128,6 +172,7 @@ def apply_snapshot(
     index = index_for_scope(session, account_id, scope_key, service)
     stats = SnapshotStats()
     seen = set()
+    events: List[ResourceChange] = []
 
     for resource in resources:
         if not resource.provider_id:
@@ -142,23 +187,30 @@ def apply_snapshot(
         values = _values(resource, secrets)
         row = index.get(key)
         if row is None:
-            row = InventoryResource(account_id=account_id, project_id=project_id, scope_key=scope_key,
-                                    service=service, resource_type=key[0], provider_id=key[1],
-                                    first_seen=now, **values)
+            row = InventoryResource(id=uuid.uuid4(), account_id=account_id, project_id=project_id,
+                                    scope_key=scope_key, service=service, resource_type=key[0],
+                                    provider_id=key[1], first_seen=now, **values)
             session.add(row)
             index[key] = row
             stats.created += 1
+            events.append(_event(row, run_id, "created"))
         elif row.deleted_at is not None:
+            diff, before = field_diff(row, values), row.raw_hash
             for name, value in values.items():
                 setattr(row, name, value)
             row.deleted_at = None
             stats.restored += 1
-        elif _changed(row, values):
-            for name, value in values.items():
-                setattr(row, name, value)
-            stats.updated += 1
+            events.append(_event(row, run_id, "restored", changed_fields=diff, raw_hash_before=before))
         else:
-            stats.unchanged += 1
+            diff = field_diff(row, values)
+            if diff:
+                before = row.raw_hash
+                for name, value in values.items():
+                    setattr(row, name, value)
+                stats.updated += 1
+                events.append(_event(row, run_id, "updated", changed_fields=diff, raw_hash_before=before))
+            else:
+                stats.unchanged += 1
         row.last_seen = now
         row.last_run_id = run_id
 
@@ -167,8 +219,41 @@ def apply_snapshot(
             if key not in seen and row.deleted_at is None:
                 row.deleted_at = now
                 stats.deleted += 1
+                events.append(_event(row, run_id, "deleted", raw_hash_before=row.raw_hash))
+    session.flush()  # los recursos nuevos deben existir antes que sus eventos (FK)
+    session.add_all(events)
     session.flush()
     return stats
+
+
+# Ordenaciones permitidas (lista blanca: el parámetro del usuario nunca llega al SQL).
+SORTABLE_FIELDS = {
+    "name": InventoryResource.name,
+    "service": InventoryResource.service,
+    "resource_type": InventoryResource.resource_type,
+    "region": InventoryResource.region,
+    "status": InventoryResource.status,
+    "provider_id": InventoryResource.provider_id,
+    "first_seen": InventoryResource.first_seen,
+    "last_seen": InventoryResource.last_seen,
+    "provider_created_at": InventoryResource.provider_created_at,
+    "deleted_at": InventoryResource.deleted_at,
+}
+DEFAULT_SORT = ("service", "resource_type", "name", "provider_id")
+
+
+def parse_sort(sort: Optional[str]) -> List[Tuple[str, bool]]:
+    """``"-last_seen,name"`` → ``[("last_seen", desc), ("name", asc)]``. Lanza ``ValueError``."""
+    if not sort:
+        return [(name, False) for name in DEFAULT_SORT]
+    result = []
+    for part in (p.strip() for p in sort.split(",") if p.strip()):
+        descending = part.startswith("-")
+        name = part.lstrip("+-")
+        if name not in SORTABLE_FIELDS:
+            raise ValueError(f"No se puede ordenar por '{name}'. Opciones: {', '.join(sorted(SORTABLE_FIELDS))}")
+        result.append((name, descending))
+    return result
 
 
 def list_for_account(
@@ -179,10 +264,29 @@ def list_for_account(
     region: Optional[str] = None,
     resource_type: Optional[str] = None,
     project_id: Optional[uuid.UUID] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
     include_deleted: bool = False,
+    only_deleted: bool = False,
+    sort: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
 ) -> Tuple[List[InventoryResource], int]:
+    query = _filtered(account_id, service=service, region=region, resource_type=resource_type,
+                      project_id=project_id, status=status, search=search,
+                      include_deleted=include_deleted, only_deleted=only_deleted)
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    order = []
+    for name, descending in parse_sort(sort):
+        column = SORTABLE_FIELDS[name]
+        order.append(column.desc().nulls_last() if descending else column.asc().nulls_last())
+    order.append(InventoryResource.id)  # orden total estable para paginar
+    rows = session.scalars(query.order_by(*order).limit(limit).offset(offset))
+    return list(rows), int(total or 0)
+
+
+def _filtered(account_id: uuid.UUID, *, service=None, region=None, resource_type=None, project_id=None,
+              status=None, search=None, include_deleted=False, only_deleted=False):
     query = select(InventoryResource).where(InventoryResource.account_id == account_id)
     if service:
         query = query.where(InventoryResource.service == service)
@@ -192,10 +296,41 @@ def list_for_account(
         query = query.where(InventoryResource.resource_type == resource_type)
     if project_id:
         query = query.where(InventoryResource.project_id == project_id)
-    if not include_deleted:
+    if status:
+        query = query.where(func.lower(InventoryResource.status) == status.lower())
+    if search:
+        term = search.strip().lower()
+        query = query.where(
+            func.lower(InventoryResource.name).contains(term, autoescape=True)
+            | func.lower(InventoryResource.provider_id).contains(term, autoescape=True))
+    if only_deleted:
+        query = query.where(InventoryResource.deleted_at.is_not(None))
+    elif not include_deleted:
         query = query.where(InventoryResource.deleted_at.is_(None))
-    total = session.scalar(select(func.count()).select_from(query.subquery()))
-    rows = session.scalars(query.order_by(InventoryResource.service, InventoryResource.resource_type,
-                                          InventoryResource.name, InventoryResource.provider_id)
-                           .limit(limit).offset(offset))
-    return list(rows), int(total or 0)
+    return query
+
+
+def get_for_account(session: Session, account_id: uuid.UUID, resource_id: uuid.UUID) -> Optional[InventoryResource]:
+    return session.scalar(select(InventoryResource).where(InventoryResource.id == resource_id,
+                                                           InventoryResource.account_id == account_id))
+
+
+def _group_count(session: Session, account_id: uuid.UUID, column, *, deleted: bool = False) -> Dict[str, int]:
+    condition = InventoryResource.deleted_at.is_not(None) if deleted else InventoryResource.deleted_at.is_(None)
+    rows = session.execute(select(column, func.count()).where(InventoryResource.account_id == account_id, condition)
+                           .group_by(column).order_by(column))
+    return {str(key) if key is not None else "": count for key, count in rows}
+
+
+def stats_for_account(session: Session, account_id: uuid.UUID) -> Dict[str, Any]:
+    """Inventario activo agrupado (servicio, región, tipo, proyecto, estado) y eliminados."""
+    by_service = _group_count(session, account_id, InventoryResource.service)
+    return {
+        "total_active": sum(by_service.values()),
+        "total_deleted": sum(_group_count(session, account_id, InventoryResource.service, deleted=True).values()),
+        "by_service": by_service,
+        "by_region": _group_count(session, account_id, InventoryResource.region),
+        "by_resource_type": _group_count(session, account_id, InventoryResource.resource_type),
+        "by_project": _group_count(session, account_id, InventoryResource.project_id),
+        "by_status": _group_count(session, account_id, InventoryResource.status),
+    }

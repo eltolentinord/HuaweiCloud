@@ -235,6 +235,9 @@ class ScanRun(Base):
         CheckConstraint(_in("status", SCAN_RUN_STATUSES), name="status"),
         CheckConstraint(_in("trigger", SCAN_TRIGGERS), name="trigger"),
         Index("ix_scan_runs_account_created", "account_id", "created_at"),
+        # Orden total y estable de los escaneos de una cuenta (no depende de la
+        # resolución del reloj: dos escaneos en el mismo segundo siguen ordenados).
+        UniqueConstraint("account_id", "sequence"),
         # Como mucho UN escaneo activo por cuenta, garantizado por la base de datos
         # (evita la carrera "comprobar y luego insertar" entre peticiones simultáneas).
         Index("uq_scan_runs_one_active_per_account", "account_id", unique=True,
@@ -245,6 +248,7 @@ class ScanRun(Base):
     account_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("cloud_accounts.id", ondelete="CASCADE"), nullable=False
     )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending",
                                         server_default="pending")
     trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="manual",
@@ -367,3 +371,52 @@ class InventoryResource(TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"InventoryResource({self.resource_type} {self.provider_id})"
+
+
+# ============================================================================
+# Fase 4 — historial de cambios por recurso
+# ============================================================================
+
+CHANGE_TYPES = ("created", "updated", "restored", "deleted")
+
+
+class ResourceChange(Base):
+    """Evento de cambio de un recurso observado por un escaneo.
+
+    Se escribe en el mismo upsert (``repositories.resources.apply_snapshot``):
+    ``created`` / ``updated`` / ``restored`` / ``deleted``. ``changed_fields`` lista
+    los campos normalizados que cambiaron (antes/después, ya redactados y truncados).
+    La comparación entre escaneos usa ``resource_id`` (identidad estable), nunca el nombre.
+    """
+
+    __tablename__ = "resource_changes"
+    __table_args__ = (
+        CheckConstraint(_in("change_type", CHANGE_TYPES), name="change_type"),
+        Index("ix_resource_changes_run_type", "scan_run_id", "change_type"),
+        Index("ix_resource_changes_resource_created", "resource_id", "created_at"),
+        Index("ix_resource_changes_account_created", "account_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("cloud_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    resource_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("resources.id", ondelete="CASCADE"), nullable=False
+    )
+    scan_run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("scan_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    change_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Copia desnormalizada para listar cambios sin JOIN (y conservar el contexto).
+    service: Mapped[str] = mapped_column(String(32), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    region: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="")
+    name: Mapped[Optional[str]] = mapped_column(String(512))
+    changed_fields: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    raw_hash_before: Mapped[Optional[str]] = mapped_column(String(64))
+    raw_hash_after: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

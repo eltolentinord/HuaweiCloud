@@ -165,7 +165,8 @@ def create_scan(session: Session, *, client_id: uuid.UUID, account_id: uuid.UUID
     projects = _select_projects(projects, regions, project_ids)
 
     plan = plan_tasks(projects, catalog)
-    run = ScanRun(id=uuid.uuid4(), account_id=account.id, status="pending", trigger=trigger,
+    run = ScanRun(id=uuid.uuid4(), account_id=account.id, sequence=scans_repo.next_sequence(session, account.id),
+                  status="pending", trigger=trigger,
                   total_tasks=len(plan),
                   stats={"services": [s.id for s in catalog], "projects": len(projects),
                          "regions": sorted({p.region_id for p in projects}),
