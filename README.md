@@ -258,6 +258,19 @@ El worker usa PostgreSQL como cola (`FOR UPDATE SKIP LOCKED` + claim atómico): 
 workers no duplican trabajo y un reinicio no pierde escaneos pendientes. Con
 `INVENTORY_SCAN_EXECUTOR=worker` la API solo encola y el worker ejecuta.
 
+### Retención de datos
+
+```powershell
+python manage.py maintenance prune                         # simulación: solo informa
+python manage.py maintenance prune --keep-days 180 --keep-min 20 --apply
+python manage.py maintenance prune --purge-deleted-days 365 --apply   # además purga recursos eliminados
+```
+
+Borra escaneos terminados más antiguos que `--keep-days`, conservando siempre los
+`--keep-min` más recientes de cada cuenta y nunca los activos. Se eliminan escaneos
+completos (tareas y eventos), por lo que las comparaciones entre los que quedan siguen
+siendo exactas. El inventario actual no se toca. Cada `--apply` queda en la auditoría.
+
 ### Seguridad
 
 - API interna: `INVENTORY_ADMIN_TOKEN` (Bearer, ≥ 32 caracteres) o, sin token, solo local.

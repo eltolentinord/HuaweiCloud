@@ -17,6 +17,7 @@
     python manage.py schedule list acme <ACCOUNT_ID>
     python manage.py schedule disable acme <ACCOUNT_ID> <SCHEDULE_ID>
     python manage.py worker [--once] [--poll 30]     # ejecuta programaciones y escaneos en cola
+    python manage.py maintenance prune [--keep-days 180] [--keep-min 20] [--purge-deleted-days 365] [--apply]
 
 AK/SK se piden con getpass (no quedan en el historial de la consola). Con
 ``--from-env`` se leen de HUAWEI_AK / HUAWEI_SK. Nunca se imprimen.
@@ -177,6 +178,20 @@ def cmd_worker(args) -> None:
         print("Worker detenido")
 
 
+def cmd_maintenance(args) -> None:
+    from scanning.maintenance import prune
+
+    with session_scope() as session:
+        report = prune(session, keep_days=args.keep_days, keep_min=args.keep_min,
+                       purge_deleted_days=args.purge_deleted_days, apply=args.apply)
+        if args.apply:
+            audit.record(session, audit.cli_principal(), "maintenance.prune",
+                         details={"fields": [f"{k}={v}" for k, v in report.as_dict().items()]})
+    verb = "Eliminados" if args.apply else "Se eliminarían (simulación; usa --apply para aplicar)"
+    print(f"{verb}: escaneos={report.scans} (eventos={report.scan_changes}) "
+          f"recursos_eliminados={report.deleted_resources} (eventos={report.resource_changes})")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Administración de Huawei Cloud Inventory")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -262,6 +277,15 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--poll", type=int, default=30, help="segundos entre ciclos")
     worker.add_argument("--workers", type=int, help="tareas simultáneas por escaneo")
     worker.set_defaults(func=cmd_worker)
+
+    maintenance = sub.add_parser("maintenance", help="retención de datos (simulación por defecto)")
+    maintenance_sub = maintenance.add_subparsers(dest="action", required=True)
+    prune = maintenance_sub.add_parser("prune")
+    prune.add_argument("--keep-days", type=int, default=180, help="conservar escaneos de los últimos N días")
+    prune.add_argument("--keep-min", type=int, default=20, help="conservar siempre los N más recientes por cuenta")
+    prune.add_argument("--purge-deleted-days", type=int, help="purgar recursos eliminados hace más de N días")
+    prune.add_argument("--apply", action="store_true", help="aplicar (sin esto solo simula)")
+    maintenance.set_defaults(func=cmd_maintenance)
     return parser
 
 
