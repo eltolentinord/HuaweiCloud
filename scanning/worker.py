@@ -32,6 +32,7 @@ from repositories import scans as scans_repo
 from repositories import schedules as schedules_repo
 from scanning.engine import STALE_RUN_AFTER, create_scan, execute_scan, release_stale_run
 from scanning.settings import ScanSettings
+from tenancy import audit
 from tenancy.errors import ConflictError, InvalidStateError, TenancyError
 from tenancy.schedules import advance
 
@@ -74,6 +75,10 @@ def queue_due_schedules(factory: sessionmaker, now: datetime, report: WorkerRepo
                     run = create_scan(session, client_id=account.client_id, account_id=account.id,
                                       services=schedule.services, regions=schedule.regions, trigger="schedule")
                 schedule.last_run_id, schedule.last_status, schedule.last_error_safe = run.id, "queued", None
+                audit.record(session, audit.WORKER_PRINCIPAL, "scan.start", client_id=account.client_id,
+                             account_id=account.id, target=("scan", run.id),
+                             details={"trigger": "schedule", "scan_sequence": run.sequence,
+                                      "services": schedule.services, "regions": schedule.regions})
                 report.queued += 1
             except ConflictError:
                 schedule.last_status, schedule.last_error_safe = "skipped_active", None

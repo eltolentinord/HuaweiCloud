@@ -22,9 +22,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from core.crypto import SecretCipher
 from db.session import get_db, get_db_session_factory
-from core.authz import Permission
+from core.authz import Permission, Principal
 from routers.deps import get_cipher
-from routers.security import requires
+from routers.security import get_principal, requires
+from tenancy import audit
 from repositories import scans as scans_repo
 from scanning.engine import create_scan, execute_scan
 from tenancy.accounts import get_account
@@ -53,10 +54,13 @@ def _run_in_background(factory: sessionmaker, cipher: SecretCipher, run_id: uuid
 def start_scan(client_id: uuid.UUID, account_id: uuid.UUID, background: BackgroundTasks,
                body: Optional[ScanIn] = None, db: Session = Depends(get_db),
                factory: sessionmaker = Depends(get_db_session_factory),
-               cipher: SecretCipher = Depends(get_cipher)):
+               cipher: SecretCipher = Depends(get_cipher), actor: Principal = Depends(get_principal)):
     run = create_scan(db, client_id=client_id, account_id=account_id,
                       services=body.services if body else None, regions=body.regions if body else None,
                       project_ids=body.project_ids if body else None, trigger="api")
+    audit.record(db, actor, "scan.start", client_id=client_id, account_id=account_id, target=("scan", run.id),
+                 details={"trigger": "api", "scan_sequence": run.sequence,
+                          "services": run.stats.get("services"), "regions": run.stats.get("regions")})
     db.commit()
     if scan_executor() == "inline":
         background.add_task(_run_in_background, factory, cipher, run.id)

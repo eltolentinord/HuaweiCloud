@@ -35,7 +35,7 @@ from db.session import get_session_factory, session_scope
 from repositories import scans as scans_repo
 from scanning.engine import scan_account
 from scanning.settings import ScanSettings
-from tenancy import accounts, clients, projects, schedules
+from tenancy import accounts, audit, clients, projects, schedules
 from tenancy.catalog_sync import sync_catalog
 from tenancy.errors import TenancyError
 from tenancy.projects import DiscoveryFailedError
@@ -86,6 +86,9 @@ def cmd_account(args) -> None:
                 session, FernetKeyring.from_env(), client_id=client_id, name=args.name, ak=ak, sk=sk,
                 huawei_domain_id=args.domain_id, endpoint_domain=args.endpoint_domain,
                 iam_region_id=args.iam_region)
+            audit.record(session, audit.cli_principal(), "account.create", client_id=client_id,
+                         account_id=account.id, target=("account", account.id),
+                         details={"name": account.name, "endpoint_domain": account.endpoint_domain})
             print(f"{account.id}  {account.name}  status={account.status}")
         elif args.action == "list":
             for account in accounts.list_accounts(session, client_id):
@@ -106,6 +109,9 @@ def cmd_project(args) -> None:
         if args.action == "add":
             p = projects.add_project(session, client_id, uuid.UUID(args.account_id),
                                      huawei_project_id=args.huawei_project_id, region_id=args.region)
+            audit.record(session, audit.cli_principal(), "project.add", client_id=client_id,
+                         account_id=p.account_id, target=("project", p.id),
+                         details={"huawei_project_id": p.huawei_project_id, "region_id": p.region_id})
             print(f"{p.id}  {p.region_id}  {p.huawei_project_id}")
             return
         for p in projects.list_projects(session, client_id, uuid.UUID(args.account_id)):
@@ -142,6 +148,9 @@ def cmd_schedule(args) -> None:
             item = schedules.create_schedule(session, client_id=client_id, account_id=account_id,
                                              interval_minutes=args.every, name=args.name,
                                              services=args.service, regions=args.region)
+            audit.record(session, audit.cli_principal(), "schedule.create", client_id=client_id,
+                         account_id=account_id, target=("schedule", item.id),
+                         details={"interval_minutes": item.interval_minutes, "services": item.services})
             print(f"{item.id}  cada {item.interval_minutes} min  próxima: {item.next_run_at:%Y-%m-%d %H:%M} UTC")
         elif args.action == "disable":
             schedules.update_schedule(session, client_id, account_id, uuid.UUID(args.schedule_id), enabled=False)

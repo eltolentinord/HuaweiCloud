@@ -16,6 +16,7 @@ from tests.test_discovery import MOS, MX, SG
 
 from db.session import get_db, session_scope
 from routers.admin import get_cipher, install_admin_api
+from routers.middleware import install_middlewares
 from tenancy.catalog_sync import sync_catalog
 
 SECRETS = (FAKE_AK, FAKE_SK)
@@ -28,6 +29,7 @@ class AdminApiTestCase(unittest.TestCase):
             sync_catalog(session)
         self.keyring = make_keyring()
         app = FastAPI()
+        install_middlewares(app)  # igual que la aplicación real (request ID, cabeceras...)
         install_admin_api(app)
 
         def db_override():

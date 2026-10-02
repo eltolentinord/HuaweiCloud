@@ -460,3 +460,35 @@ class ScanSchedule(TimestampMixin, Base):
     last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_status: Mapped[Optional[str]] = mapped_column(String(32))   # queued | skipped_active | error
     last_error_safe: Mapped[Optional[str]] = mapped_column(Text)
+
+
+# ============================================================================
+# Fase 4 — auditoría de acciones administrativas
+# ============================================================================
+
+
+class AuditEvent(Base):
+    """Quién hizo qué y cuándo (alta de cuentas, credenciales, escaneos, programaciones...).
+
+    ``client_id``/``account_id`` NO son claves foráneas a propósito: el registro debe
+    sobrevivir al borrado del cliente o la cuenta. ``details`` solo admite campos
+    explícitos y nunca contiene AK/SK ni otros secretos.
+    """
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_events_client_occurred", "client_id", "occurred_at"),
+        Index("ix_audit_events_action", "action"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actor_subject: Mapped[str] = mapped_column(String(200), nullable=False)
+    actor_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_type: Mapped[Optional[str]] = mapped_column(String(32))
+    target_id: Mapped[Optional[str]] = mapped_column(String(64))
+    request_id: Mapped[Optional[str]] = mapped_column(String(64))
+    details: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)

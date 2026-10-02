@@ -27,8 +27,9 @@ from tenancy.catalog_sync import sync_catalog
 
 EXPECTED_TABLES = {"alembic_version", "clients", "users", "user_client_roles", "cloud_accounts",
                    "regions", "projects", "service_catalog", "scan_runs", "scan_tasks", "resources",
-                   "resource_changes", "scan_schedules"}
-HEAD = "0006"
+                   "resource_changes", "scan_schedules",
+                   "audit_events"}
+HEAD = "0007"
 
 
 def alembic_config(url: str) -> Config:

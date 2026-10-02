@@ -44,12 +44,13 @@ class Permission(str, Enum):
     EXPORTS_READ = "exports:read"
     COSTS_READ = "costs:read"
     SCHEDULES_MANAGE = "schedules:manage"
+    AUDIT_READ = "audit:read"                    # registro de auditoría del cliente
 
 
 _VIEWER = frozenset({Permission.CLIENTS_READ, Permission.ACCOUNTS_READ, Permission.SCANS_READ,
                      Permission.INVENTORY_READ, Permission.EXPORTS_READ, Permission.COSTS_READ})
 _OPERATOR = _VIEWER | {Permission.SCANS_RUN, Permission.PROJECTS_MANAGE, Permission.SCHEDULES_MANAGE}
-_ADMIN = _OPERATOR | {Permission.ACCOUNTS_MANAGE, Permission.CREDENTIALS_MANAGE}
+_ADMIN = _OPERATOR | {Permission.ACCOUNTS_MANAGE, Permission.CREDENTIALS_MANAGE, Permission.AUDIT_READ}
 
 ROLE_PERMISSIONS: Dict[Role, FrozenSet[Permission]] = {
     Role.VIEWER: _VIEWER, Role.OPERATOR: frozenset(_OPERATOR), Role.ADMIN: frozenset(_ADMIN),

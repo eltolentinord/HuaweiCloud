@@ -359,3 +359,24 @@ class ScheduleOut(BaseModel):
     last_error_safe: Optional[str]
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------- Fase 4: auditoría
+class AuditEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    occurred_at: datetime
+    actor_subject: str
+    actor_kind: str
+    client_id: Optional[uuid.UUID]
+    account_id: Optional[uuid.UUID]
+    action: str
+    target_type: Optional[str]
+    target_id: Optional[str]
+    request_id: Optional[str]
+    details: Dict[str, Any]
+
+
+class AuditPage(Page):
+    items: List[AuditEventOut]

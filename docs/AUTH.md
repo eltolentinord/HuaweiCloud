@@ -24,7 +24,7 @@ No hay un login "casero": las contraseñas de usuarios no se almacenan en esta a
 |---|:-:|:-:|:-:|:-:|
 | clients:read, accounts:read, scans:read, inventory:read, exports:read, costs:read | ✔ | ✔ | ✔ | ✔ |
 | scans:run (llama a Huawei), projects:manage, schedules:manage | | ✔ | ✔ | ✔ |
-| accounts:manage, credentials:manage (AK/SK) | | | ✔ | ✔ |
+| accounts:manage, credentials:manage (AK/SK), audit:read | | | ✔ | ✔ |
 | clients:manage (crear/modificar/borrar clientes) | | | | ✔ |
 
 ## Integración del login (fase posterior)
@@ -45,7 +45,7 @@ No hay un login "casero": las contraseñas de usuarios no se almacenan en esta a
    memoria si la UI pasa a SPA.
 6. **Flujo heredado** (`/api/inventory` con AK/SK en el formulario): en modo SaaS debe
    desactivarse por configuración; en modo local se mantiene.
-7. **Auditoría**: registrar quién lanza escaneos y modifica cuentas/credenciales
-   (tabla `audit_events`), siempre sin secretos.
+7. **Auditoría**: ya implementada (`audit_events`, `GET /api/clients/{id}/audit`). Con
+   login real, `actor_subject` pasará a ser el usuario autenticado sin cambiar nada más.
 
 Las rutas no cambian: ya declaran el permiso que necesitan.
