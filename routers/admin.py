@@ -23,7 +23,8 @@ from core.crypto import CryptoConfigurationError, SecretCipher, SecretDecryption
 from db.session import DatabaseNotConfiguredError, get_db
 from routers.common import install_safe_validation_errors, inventory_response
 from routers.deps import _keyring_from_env, get_cipher  # noqa: F401  (reexportados)
-from routers.security import get_principal
+from core.authz import Permission, Principal
+from routers.security import get_principal, requires
 from routers.inventory_api import router as inventory_api_router
 from routers.scans import router as scans_router
 from tenancy import accounts, clients, projects
@@ -57,37 +58,39 @@ def admin_api_enabled() -> bool:
 
 # ------------------------------------------------------------------ clientes
 @router.get("/clients", response_model=List[ClientOut])
-def list_clients(db: Session = Depends(get_db)):
-    return clients.list_clients(db)
+def list_clients(db: Session = Depends(get_db), principal: Principal = Depends(get_principal)):
+    """Clientes visibles para quien llama (todos para administradores de plataforma)."""
+    visible = principal.visible_client_ids()
+    return [c for c in clients.list_clients(db) if visible is None or str(c.id) in visible]
 
 
-@router.post("/clients", response_model=ClientOut, status_code=201)
+@router.post("/clients", response_model=ClientOut, status_code=201, dependencies=[Depends(requires(Permission.CLIENTS_MANAGE))])
 def create_client(body: ClientIn, db: Session = Depends(get_db)):
     return clients.create_client(db, name=body.name, slug=body.slug, status=body.status)
 
 
-@router.get("/clients/{client_id}", response_model=ClientOut)
+@router.get("/clients/{client_id}", response_model=ClientOut, dependencies=[Depends(requires(Permission.CLIENTS_READ))])
 def get_client(client_id: uuid.UUID, db: Session = Depends(get_db)):
     return clients.get_client(db, client_id)
 
 
-@router.patch("/clients/{client_id}", response_model=ClientOut)
+@router.patch("/clients/{client_id}", response_model=ClientOut, dependencies=[Depends(requires(Permission.CLIENTS_MANAGE))])
 def update_client(client_id: uuid.UUID, body: ClientPatch, db: Session = Depends(get_db)):
     return clients.update_client(db, client_id, **body.model_dump(exclude_unset=True))
 
 
-@router.delete("/clients/{client_id}", status_code=204)
+@router.delete("/clients/{client_id}", status_code=204, dependencies=[Depends(requires(Permission.CLIENTS_MANAGE))])
 def delete_client(client_id: uuid.UUID, db: Session = Depends(get_db)):
     clients.delete_client(db, client_id)
 
 
 # ------------------------------------------------------------------- cuentas
-@router.get("/clients/{client_id}/accounts", response_model=List[AccountOut])
+@router.get("/clients/{client_id}/accounts", response_model=List[AccountOut], dependencies=[Depends(requires(Permission.ACCOUNTS_READ))])
 def list_accounts(client_id: uuid.UUID, db: Session = Depends(get_db)):
     return accounts.list_accounts(db, client_id)
 
 
-@router.post("/clients/{client_id}/accounts", response_model=AccountOut, status_code=201)
+@router.post("/clients/{client_id}/accounts", response_model=AccountOut, status_code=201, dependencies=[Depends(requires(Permission.ACCOUNTS_MANAGE))])
 def create_account(client_id: uuid.UUID, body: AccountIn, db: Session = Depends(get_db),
                    cipher: SecretCipher = Depends(get_cipher)):
     data = body.model_dump(exclude={"ak", "sk"})
@@ -95,48 +98,48 @@ def create_account(client_id: uuid.UUID, body: AccountIn, db: Session = Depends(
                                    sk=body.sk.get_secret_value(), **data)
 
 
-@router.get("/clients/{client_id}/accounts/{account_id}", response_model=AccountOut)
+@router.get("/clients/{client_id}/accounts/{account_id}", response_model=AccountOut, dependencies=[Depends(requires(Permission.ACCOUNTS_READ))])
 def get_account(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db)):
     return accounts.get_account(db, client_id, account_id)
 
 
-@router.patch("/clients/{client_id}/accounts/{account_id}", response_model=AccountOut)
+@router.patch("/clients/{client_id}/accounts/{account_id}", response_model=AccountOut, dependencies=[Depends(requires(Permission.ACCOUNTS_MANAGE))])
 def update_account(client_id: uuid.UUID, account_id: uuid.UUID, body: AccountPatch,
                    db: Session = Depends(get_db)):
     return accounts.update_account(db, client_id, account_id, **body.model_dump(exclude_unset=True))
 
 
-@router.put("/clients/{client_id}/accounts/{account_id}/credentials", response_model=AccountOut)
+@router.put("/clients/{client_id}/accounts/{account_id}/credentials", response_model=AccountOut, dependencies=[Depends(requires(Permission.CREDENTIALS_MANAGE))])
 def replace_credentials(client_id: uuid.UUID, account_id: uuid.UUID, body: CredentialsIn,
                         db: Session = Depends(get_db), cipher: SecretCipher = Depends(get_cipher)):
     return accounts.replace_credentials(db, cipher, client_id, account_id,
                                         ak=body.ak.get_secret_value(), sk=body.sk.get_secret_value())
 
 
-@router.delete("/clients/{client_id}/accounts/{account_id}", status_code=204)
+@router.delete("/clients/{client_id}/accounts/{account_id}", status_code=204, dependencies=[Depends(requires(Permission.ACCOUNTS_MANAGE))])
 def delete_account(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db)):
     accounts.delete_account(db, client_id, account_id)
 
 
 # ----------------------------------------------------------------- proyectos
-@router.get("/clients/{client_id}/accounts/{account_id}/projects", response_model=List[ProjectOut])
+@router.get("/clients/{client_id}/accounts/{account_id}/projects", response_model=List[ProjectOut], dependencies=[Depends(requires(Permission.ACCOUNTS_READ))])
 def list_projects(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db)):
     return projects.list_projects(db, client_id, account_id)
 
 
 @router.post("/clients/{client_id}/accounts/{account_id}/projects", response_model=ProjectOut,
-             status_code=201)
+             status_code=201, dependencies=[Depends(requires(Permission.PROJECTS_MANAGE))])
 def add_project(client_id: uuid.UUID, account_id: uuid.UUID, body: ProjectIn, db: Session = Depends(get_db)):
     return projects.add_project(db, client_id, account_id, **body.model_dump())
 
 
-@router.patch("/clients/{client_id}/accounts/{account_id}/projects/{project_id}", response_model=ProjectOut)
+@router.patch("/clients/{client_id}/accounts/{account_id}/projects/{project_id}", response_model=ProjectOut, dependencies=[Depends(requires(Permission.PROJECTS_MANAGE))])
 def update_project(client_id: uuid.UUID, account_id: uuid.UUID, project_id: uuid.UUID,
                    body: ProjectPatch, db: Session = Depends(get_db)):
     return projects.set_project_enabled(db, client_id, account_id, project_id, body.is_enabled)
 
 
-@router.post("/clients/{client_id}/accounts/{account_id}/discover-projects", response_model=DiscoveryOut)
+@router.post("/clients/{client_id}/accounts/{account_id}/discover-projects", response_model=DiscoveryOut, dependencies=[Depends(requires(Permission.PROJECTS_MANAGE))])
 def discover_projects(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db),
                       cipher: SecretCipher = Depends(get_cipher)):
     try:
@@ -151,7 +154,8 @@ def discover_projects(client_id: uuid.UUID, account_id: uuid.UUID, db: Session =
 
 
 # ------------------------------------------------- inventario por cuenta
-@inventory_router.post("/{client_id}/accounts/{account_id}/inventory")
+@inventory_router.post("/{client_id}/accounts/{account_id}/inventory",
+                       dependencies=[Depends(requires(Permission.SCANS_RUN))])
 def account_inventory(client_id: uuid.UUID, account_id: uuid.UUID, body: AccountInventoryIn,
                       db: Session = Depends(get_db), cipher: SecretCipher = Depends(get_cipher)):
     """Mismo formato de respuesta que ``/api/inventory``, sin AK/SK en la petición."""

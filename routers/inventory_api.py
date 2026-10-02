@@ -14,12 +14,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from core.authz import Permission
 from db.models import CHANGE_TYPES
 from db.session import get_db
 from repositories import changes as changes_repo
 from repositories import projects as projects_repo
 from repositories import resources as resources_repo
 from repositories import scans as scans_repo
+from routers.security import requires
 from scanning.history import CATEGORIES, compare_scans
 from tenancy.accounts import get_account, list_accounts
 from tenancy.clients import get_client
@@ -39,7 +41,9 @@ from tenancy.schemas import (
     ScanRunSummary,
 )
 
-router = APIRouter(prefix="/api/clients/{client_id}", tags=["inventory"])
+# Todas las rutas de este router son de lectura de inventario del cliente.
+router = APIRouter(prefix="/api/clients/{client_id}", tags=["inventory"],
+                   dependencies=[Depends(requires(Permission.INVENTORY_READ))])
 
 
 def _last_scan(db: Session, account_id: uuid.UUID) -> Optional[ScanRunSummary]:

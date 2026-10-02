@@ -18,7 +18,8 @@ from sqlalchemy import text
 
 from core.observability import METRICS
 from db.session import DatabaseNotConfiguredError, get_engine
-from routers.security import Principal, require_platform_admin
+from core.authz import Principal
+from routers.security import require_platform_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["system"])

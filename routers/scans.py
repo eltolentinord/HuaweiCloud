@@ -21,7 +21,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from core.crypto import SecretCipher
 from db.session import get_db, get_db_session_factory
+from core.authz import Permission
 from routers.deps import get_cipher
+from routers.security import requires
 from repositories import scans as scans_repo
 from scanning.engine import create_scan, execute_scan
 from tenancy.accounts import get_account
@@ -36,7 +38,7 @@ def _run_in_background(factory: sessionmaker, cipher: SecretCipher, run_id: uuid
 
 
 @router.post("/api/clients/{client_id}/accounts/{account_id}/scans", response_model=ScanRunSummary,
-             status_code=202)
+             status_code=202, dependencies=[Depends(requires(Permission.SCANS_RUN))])
 def start_scan(client_id: uuid.UUID, account_id: uuid.UUID, background: BackgroundTasks,
                body: Optional[ScanIn] = None, db: Session = Depends(get_db),
                factory: sessionmaker = Depends(get_db_session_factory),
@@ -49,7 +51,8 @@ def start_scan(client_id: uuid.UUID, account_id: uuid.UUID, background: Backgrou
     return ScanRunSummary.from_run(run)
 
 
-@router.get("/api/clients/{client_id}/accounts/{account_id}/scans", response_model=List[ScanRunSummary])
+@router.get("/api/clients/{client_id}/accounts/{account_id}/scans", response_model=List[ScanRunSummary],
+            dependencies=[Depends(requires(Permission.SCANS_READ))])
 def list_scans(client_id: uuid.UUID, account_id: uuid.UUID, limit: int = Query(20, ge=1, le=100),
                offset: int = Query(0, ge=0), status: Optional[str] = None, db: Session = Depends(get_db)):
     """Historial de escaneos (más reciente primero). Mantiene el formato de lista de la 3A."""
@@ -58,7 +61,8 @@ def list_scans(client_id: uuid.UUID, account_id: uuid.UUID, limit: int = Query(2
     return [ScanRunSummary.from_run(r) for r in runs]
 
 
-@router.get("/api/scans/{scan_id}", response_model=ScanRunOut)
+@router.get("/api/scans/{scan_id}", response_model=ScanRunOut,
+            dependencies=[Depends(requires(Permission.SCANS_READ))])
 def get_scan(scan_id: uuid.UUID, client_id: uuid.UUID = Query(..., description="Cliente propietario"),
              db: Session = Depends(get_db)):
     run = scans_repo.get_for_client(db, client_id, scan_id)

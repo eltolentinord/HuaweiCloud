@@ -19,30 +19,17 @@ from __future__ import annotations
 import hmac
 import logging
 import os
-from dataclasses import dataclass, field
-from typing import Dict
+from typing import Callable
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+
+from core.authz import AccessDenied, Permission, Principal, ensure
 
 logger = logging.getLogger(__name__)
 
 ENV_ADMIN_TOKEN = "INVENTORY_ADMIN_TOKEN"
 MIN_TOKEN_LENGTH = 32
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})  # testclient = TestClient en proceso
-
-
-@dataclass(frozen=True)
-class Principal:
-    """Identidad del llamante. ``client_roles`` se usará con usuarios reales (Fase de login)."""
-
-    subject: str
-    kind: str                                # "service" | "local" | "user"
-    platform_role: str = ""                  # "admin" = acceso a todos los clientes
-    client_roles: Dict[str, str] = field(default_factory=dict)
-
-    @property
-    def is_platform_admin(self) -> bool:
-        return self.platform_role == "admin"
 
 
 def _configured_token() -> str:
@@ -71,8 +58,26 @@ def get_principal(request: Request) -> Principal:
     return Principal(subject="local", kind="local", platform_role="admin")
 
 
-def require_platform_admin(request: Request) -> Principal:
-    principal = get_principal(request)
+def require_platform_admin(principal: Principal = Depends(get_principal)) -> Principal:
     if not principal.is_platform_admin:
         raise HTTPException(status_code=403, detail="Permiso insuficiente.")
     return principal
+
+
+def requires(permission: Permission) -> Callable[..., Principal]:
+    """Dependencia: exige ``permission`` sobre el cliente de la ruta.
+
+    El cliente se toma de ``{client_id}`` en la ruta o, si no está, del parámetro
+    de consulta ``client_id`` (p. ej. ``/api/scans/{id}?client_id=...``).
+    """
+
+    def dependency(request: Request, principal: Principal = Depends(get_principal)) -> Principal:
+        client_id = request.path_params.get("client_id") or request.query_params.get("client_id")
+        try:
+            ensure(principal, permission, client_id)
+        except AccessDenied as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
+        return principal
+
+    dependency.__name__ = f"requires_{permission.name.lower()}"
+    return dependency
