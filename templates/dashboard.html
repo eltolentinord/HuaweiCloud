@@ -65,6 +65,15 @@
           <div class="flex flex-wrap items-center gap-2 text-sm" id="accountInfo"></div>
         </section>
 
+        <!-- Cobertura del último escaneo -->
+        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+          <div class="flex flex-wrap items-baseline gap-2 mb-3">
+            <h2 class="font-bold text-sm mr-auto">Cobertura del último escaneo</h2>
+            <span class="text-xs text-slate-500">Los servicios sin permiso conservan sus recursos anteriores: nunca se marcan como eliminados.</span>
+          </div>
+          <div id="coverage" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2"></div>
+        </section>
+
         <!-- Distribución -->
         <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
@@ -99,6 +108,23 @@
                   <th class="px-4 py-2 text-right">Avisos</th><th class="px-4 py-2"></th></tr>
               </thead>
               <tbody id="scanHistory" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Programaciones -->
+        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div class="flex flex-wrap items-baseline gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+            <h2 class="font-bold text-sm mr-auto">Escaneos programados</h2>
+            <span class="text-xs text-slate-500">Se ejecutan con <code class="font-mono">python manage.py worker</code></span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-800 text-[11px] uppercase text-slate-500">
+                <tr><th class="px-4 py-2 text-left">Nombre</th><th class="px-4 py-2 text-left">Activa</th><th class="px-4 py-2 text-left">Cada</th>
+                  <th class="px-4 py-2 text-left">Servicios</th><th class="px-4 py-2 text-left">Próxima</th><th class="px-4 py-2 text-left">Último resultado</th></tr>
+              </thead>
+              <tbody id="schedules" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
             </table>
           </div>
         </section>

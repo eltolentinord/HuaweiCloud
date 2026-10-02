@@ -85,7 +85,7 @@
     $("accountInfo").innerHTML = `<span class="font-semibold">${esc(account.name)}</span>
       <span class="text-slate-500">· ${account.projects} proyecto(s) ·</span>
       ${account.regions.map((r) => `<span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-mono">${esc(r)}</span>`).join("") || '<span class="text-slate-500">sin regiones</span>'}`;
-    await Promise.all([loadStats(), loadScans(), loadResources()]);
+    await Promise.all([loadStats(), loadScans(), loadResources(), loadSchedules()]);
   }
 
   /* ---------- KPIs y distribución ---------- */
@@ -116,11 +116,56 @@
       kpi("Eliminados (últ.)", changes.deleted || 0, "minus-circle", "en el último escaneo"),
       kpi("Errores / avisos", last ? `${last.total_errors} / ${last.total_warnings}` : "—", "alert-triangle"),
     ].join("");
+    renderCoverage(stats.last_scan_coverage || []);
     bars("byService", stats.by_service);
     bars("byRegion", stats.by_region);
     $("fService").innerHTML = '<option value="">Todos los servicios</option>' + Object.keys(stats.by_service).map((s) => `<option>${esc(s)}</option>`).join("");
     $("fRegion").innerHTML = '<option value="">Todas las regiones</option>' + Object.keys(stats.by_region).map((r) => `<option>${esc(r)}</option>`).join("");
     icons();
+  }
+
+  /* ---------- cobertura por servicio ---------- */
+  const COVERAGE = {
+    succeeded: ["Completo", "Inventario completo."],
+    denied: ["Sin permiso", "El usuario IAM de la cuenta no tiene permiso para este servicio. Se conservan los recursos inventariados antes."],
+    partial: ["Parcial", "Solo se pudo inventariar una parte (permiso o paginación incompleta en algunas regiones). Lo no visto no se marca como eliminado."],
+    unavailable: ["No disponible", "El servicio no existe en las regiones de la cuenta."],
+    failed: ["Error", "Fallo de red, de la API o interno. Revisa el detalle del escaneo."],
+    skipped: ["Omitido", "No se ejecutó."], running: ["En curso", ""], pending: ["Pendiente", ""],
+  };
+  const COVERAGE_BADGE = { succeeded: "completed", denied: "denied", partial: "partial", unavailable: "unavailable", failed: "failed" };
+  function renderCoverage(items) {
+    $("coverage").innerHTML = items.map((c) => {
+      const [label, help] = COVERAGE[c.status] || [c.status, ""];
+      const extra = [];
+      if (c.regions_affected.length && !c.complete) extra.push(`Regiones: ${c.regions_affected.map(esc).join(", ")}`);
+      if (c.iam_actions.length) extra.push(`Acción IAM: <span class="font-mono">${c.iam_actions.map(esc).join(", ")}</span>`);
+      return `<div class="rounded-xl border ${c.complete ? "border-slate-200 dark:border-slate-800" : "border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/10"} px-3 py-2"
+          title="${esc(c.message || "")}">
+        <div class="flex items-center gap-2"><span class="font-mono text-xs font-semibold uppercase">${esc(c.service)}</span>
+          <span class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${BADGE[COVERAGE_BADGE[c.status] || c.status] || "bg-slate-200 text-slate-700"}">${esc(label)}</span>
+          <span class="ml-auto text-xs text-slate-500">${c.resources} recursos</span></div>
+        ${c.complete ? "" : `<p class="text-xs text-slate-600 dark:text-slate-400 mt-1">${esc(help)}</p>`}
+        ${extra.length ? `<p class="text-[11px] text-slate-500 mt-0.5">${extra.join(" · ")}</p>` : ""}</div>`;
+    }).join("") || '<p class="text-xs text-slate-500">Sin escaneos todavía.</p>';
+  }
+
+  /* ---------- programaciones ---------- */
+  function fmtEvery(minutes) {
+    return minutes % 1440 === 0 ? `${minutes / 1440} d` : minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
+  }
+  async function loadSchedules() {
+    let items = [];
+    try { items = await api(`${base()}/schedules`); } catch (err) { if (err.status !== 403) throw err; }
+    $("schedules").innerHTML = items.map((s) => `<tr>
+      <td class="px-4 py-2 font-semibold">${esc(s.name)}</td>
+      <td class="px-4 py-2">${s.enabled ? '<span class="text-emerald-600 text-xs font-semibold">Sí</span>' : '<span class="text-slate-500 text-xs">No</span>'}</td>
+      <td class="px-4 py-2 text-xs">${esc(fmtEvery(s.interval_minutes))}</td>
+      <td class="px-4 py-2 text-xs font-mono">${esc(s.services ? s.services.join(", ") : "todos")}</td>
+      <td class="px-4 py-2 text-xs whitespace-nowrap">${esc(s.enabled ? fmtDate(s.next_run_at) : "—")}</td>
+      <td class="px-4 py-2" title="${esc(s.last_error_safe || "")}">${s.last_status ? badge(s.last_status) : '<span class="text-xs text-slate-500">nunca</span>'}
+        ${s.last_triggered_at ? `<span class="text-xs text-slate-500 ml-1">${esc(fmtDate(s.last_triggered_at))}</span>` : ""}</td></tr>`).join("")
+      || '<tr><td colspan="6" class="px-4 py-6 text-center text-xs text-slate-500">Sin programaciones. Crea una con: python manage.py schedule create</td></tr>';
   }
 
   /* ---------- escaneos ---------- */

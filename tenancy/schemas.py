@@ -273,6 +273,19 @@ class ScanRunPage(Page):
     items: List[ScanRunSummary]
 
 
+class ServiceCoverageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    service: str
+    status: str
+    complete: bool
+    resources: int
+    tasks: Dict[str, int]
+    regions_affected: List[str]
+    iam_actions: List[str]
+    message: Optional[str]
+
+
 class AccountStatsOut(BaseModel):
     account_id: uuid.UUID
     total_active: int
@@ -284,6 +297,7 @@ class AccountStatsOut(BaseModel):
     by_status: Dict[str, int]
     last_scan: Optional[ScanRunSummary]
     last_scan_changes: Dict[str, int]
+    last_scan_coverage: List[ServiceCoverageOut] = []
 
 
 class DiffItemOut(BaseModel):

@@ -22,6 +22,7 @@ from repositories import projects as projects_repo
 from repositories import resources as resources_repo
 from repositories import scans as scans_repo
 from routers.security import requires
+from scanning.coverage import service_coverage
 from scanning.history import CATEGORIES, compare_scans
 from tenancy.accounts import get_account, list_accounts
 from tenancy.clients import get_client
@@ -39,6 +40,7 @@ from tenancy.schemas import (
     ResourceOut,
     ResourcePage,
     ScanRunSummary,
+    ServiceCoverageOut,
 )
 
 # Todas las rutas de este router son de lectura de inventario del cliente.
@@ -72,7 +74,9 @@ def account_stats(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Dep
     last = _last_scan(db, account.id)
     return AccountStatsOut(account_id=account.id, **resources_repo.stats_for_account(db, account.id),
                            last_scan=last,
-                           last_scan_changes=changes_repo.counts_for_run(db, last.id) if last else {})
+                           last_scan_changes=changes_repo.counts_for_run(db, last.id) if last else {},
+                           last_scan_coverage=[ServiceCoverageOut.model_validate(c) for c in
+                                               service_coverage(scans_repo.tasks(db, last.id))] if last else [])
 
 
 @router.get("/accounts/{account_id}/resources", response_model=ResourcePage)
