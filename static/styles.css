@@ -1,0 +1,41 @@
+/* Estilos personalizados mínimos (el resto usa Tailwind CDN) */
+html { scroll-behavior: smooth; }
+
+body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+
+/* Barras de scroll suaves */
+::-webkit-scrollbar { height: 8px; width: 8px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Cabecera de tabla fija dentro del contenedor de scroll */
+#tables thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Transición del drawer */
+#drawer { will-change: transform; }
+
+/* Focus visible para accesibilidad */
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Animación de entrada para secciones */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#results:not(.hidden) {
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+#summary:not(.hidden) {
+  animation: fadeSlideIn 0.3s ease-out;
+}

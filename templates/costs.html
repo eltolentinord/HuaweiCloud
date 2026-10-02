@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Análisis de Costos - Huawei Cloud Inventory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' };</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
+  <div class="flex min-h-screen">
+    <aside class="hidden md:flex md:w-64 flex-col bg-slate-900 text-slate-200 p-5">
+      <div class="flex items-center gap-2 mb-8">
+        <i data-lucide="cloud" class="w-6 h-6 text-blue-400"></i>
+        <h1 class="text-lg font-bold text-white leading-tight">Huawei Cloud<br />Inventory</h1>
+      </div>
+      <nav class="space-y-1 text-sm">
+        <a class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800" href="#"><i data-lucide="layout-dashboard" class="w-4 h-4"></i>Dashboard</a>
+        <a class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800" href="/"><i data-lucide="server" class="w-4 h-4"></i>Inventario ECS</a>
+        <a class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 text-white" href="/costos"><i data-lucide="wallet" class="w-4 h-4"></i>Análisis de costos</a>
+        <a class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800" href="#"><i data-lucide="settings" class="w-4 h-4"></i>Configuración</a>
+      </nav>
+      <div class="mt-auto text-xs text-slate-400 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span> Read-only
+      </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-w-0">
+      <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 md:px-8 py-3 flex items-center gap-3">
+        <h2 class="font-semibold text-slate-900 dark:text-white mr-auto">Análisis de costos</h2>
+        <button id="btnTheme" class="text-sm inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800">
+          <i data-lucide="moon" class="w-4 h-4"></i><span id="themeLabel">Oscuro</span>
+        </button>
+      </header>
+
+      <main class="p-4 md:p-8 space-y-6">
+        <div id="alertBox" class="hidden rounded-xl border border-red-300 bg-red-50 dark:bg-red-950/40 dark:border-red-800 p-4 text-sm">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="font-semibold text-red-700 dark:text-red-300">Error</p>
+              <p id="alertMsg" class="mt-1 text-red-600 dark:text-red-200"></p>
+              <p id="alertMeta" class="mt-1 text-xs text-red-500"></p>
+            </div>
+            <button id="alertClose"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+        </div>
+
+        <section class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-5 md:p-6">
+          <h3 class="font-semibold mb-4 flex items-center gap-2"><i data-lucide="key-round" class="w-5 h-5 text-blue-500"></i>Cost Center</h3>
+          <form id="formCosts" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <label class="text-sm">Access Key (AK)
+              <input id="ak" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" type="text" autocomplete="off" required />
+            </label>
+            <label class="text-sm">Secret Key (SK)
+              <div class="mt-1 flex gap-2">
+                <input id="sk" class="w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" type="password" autocomplete="off" required />
+                <button type="button" id="btnToggleSk" class="px-3 rounded-lg border border-slate-300 dark:border-slate-700"><i data-lucide="eye" class="w-4 h-4"></i></button>
+              </div>
+            </label>
+            <label class="text-sm">Mes A
+              <input id="month_a" type="month" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" required />
+            </label>
+            <label class="text-sm">Mes B
+              <input id="month_b" type="month" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" required />
+            </label>
+            <label class="text-sm">Tipo de costo
+              <select id="cost_type" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800">
+                <option>ORIGINAL_COST</option>
+                <option>AMORTIZED_COST</option>
+              </select>
+            </label>
+            <label class="text-sm">Importe
+              <select id="amount_type" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800">
+                <option>NET_AMOUNT</option>
+                <option>PAYMENT_AMOUNT</option>
+              </select>
+            </label>
+            <div class="flex items-end gap-3 flex-wrap">
+              <button id="btnCompare" type="submit" class="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-60">
+                <i data-lucide="bar-chart-3" class="w-4 h-4"></i>Comparar costos
+              </button>
+              <button type="button" id="btnClear" class="inline-flex items-center gap-2 px-5 py-2 rounded-lg border border-slate-300 dark:border-slate-700">
+                <i data-lucide="eraser" class="w-4 h-4"></i>Limpiar
+              </button>
+              <button type="button" id="btnExport" class="hidden inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
+                <i data-lucide="download" class="w-4 h-4"></i>Exportar Excel
+              </button>
+            </div>
+            <p id="avisoPreliminares" class="hidden md:col-span-2 xl:col-span-4 text-xs text-amber-600 dark:text-amber-400">
+              Aviso: el mes actual puede tener datos preliminares.
+            </p>
+            <p class="md:col-span-2 xl:col-span-4 text-xs text-slate-500">
+              <i data-lucide="shield-check" class="w-3.5 h-3.5 inline -mt-0.5 text-emerald-500"></i>
+              Las credenciales se usan solo en memoria durante esta consulta y no se guardan.
+            </p>
+            <p id="extraccion" class="md:col-span-2 xl:col-span-4 text-xs text-slate-500"></p>
+          </form>
+        </section>
+
+        <section id="seccionResumen" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Gasto Mes A</p><p id="sTotalA" class="text-xl font-bold">—</p></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Gasto Mes B</p><p id="sTotalB" class="text-xl font-bold">—</p></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Diferencia</p><p id="sDiff" class="text-xl font-bold">—</p></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Variación</p><p id="sPct" class="text-xl font-bold">—</p></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Región con mayor gasto</p><p id="sRegion" class="text-sm font-semibold">—</p></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Producto más costoso</p><p id="sProd" class="text-sm font-semibold">—</p></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Producto que más aumentó</p><p id="sUp" class="text-sm font-semibold text-red-600">—</p></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Producto que más disminuyó</p><p id="sDown" class="text-sm font-semibold text-emerald-600">—</p></div>
+        </section>
+
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Mes A vs Mes B por producto</h4><canvas id="chProduct"></canvas></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Gasto por región (Mes B)</h4><canvas id="chRegion"></canvas></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Distribución del gasto (Mes B)</h4><canvas id="chDonut"></canvas></div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Tendencia mensual</h4><canvas id="chTrend"></canvas></div>
+        </section>
+
+        <section id="seccionTablas" class="hidden space-y-6">
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+            <h4 class="font-semibold mb-2">Comparación por producto</h4>
+            <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Mes A</th><th class="px-3 py-2">Mes B</th><th class="px-3 py-2">Diferencia</th><th class="px-3 py-2">Variación %</th></tr></thead><tbody id="tProducto"></tbody></table>
+          </div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+            <h4 class="font-semibold mb-2">Comparación por región</h4>
+            <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Mes A</th><th class="px-3 py-2">Mes B</th><th class="px-3 py-2">Diferencia</th><th class="px-3 py-2">Variación %</th></tr></thead><tbody id="tRegion"></tbody></table>
+          </div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+            <h4 class="font-semibold mb-2">Región y producto</h4>
+            <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Mes A</th><th class="px-3 py-2">Mes B</th><th class="px-3 py-2">Diferencia</th><th class="px-3 py-2">Variación %</th></tr></thead><tbody id="tRegProd"></tbody></table>
+          </div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+            <h4 class="font-semibold mb-2">Servicios nuevos</h4>
+            <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Costo Mes A</th><th class="px-3 py-2">Costo Mes B</th></tr></thead><tbody id="tNuevos"></tbody></table>
+          </div>
+          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+            <h4 class="font-semibold mb-2">Servicios eliminados / sin consumo</h4>
+            <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Costo Mes A</th><th class="px-3 py-2">Costo Mes B</th></tr></thead><tbody id="tEliminados"></tbody></table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/static/costs.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+================================================================================
+ANÁLISIS DEL PROYECTO: HUAWEI CLOUD INVENTORY
+================================================================================
+
+QUÉ ES
+--------------------------------------------------------------------------------
+Aplicación web de solo lectura para consultar y exportar el inventario de
+recursos en Huawei Cloud. Permite ver qué servicios y recursos tiene un
+Project ID en una región, sin riesgo de modificaciones.
+
+
+ARQUITECTURA
+--------------------------------------------------------------------------------
+templates/index.html  →  Interfaz (Tailwind CDN, JS vanilla)
+static/app.js        →  Lógica cliente
+static/styles.css    →  Estilos mínimos
+app.py               →  FastAPI (servidor, API, exportación)
+inventory.py         →  SDKs Huawei → tablas normalizadas
+routers/costs.py     →  Módulo adicional de costos
+test_ecs.py          →  CLI original (reutilizado)
+mock_data_MOCK.py    →  Datos de diseño (no producción)
+
+Stack: FastAPI + Jinja2 + Tailwind CDN + openpyxl + SDKs oficiales Huawei.
+
+
+FUNCIONALIDAD PRINCIPAL
+--------------------------------------------------------------------------------
+1. Formulario de conexión: Access Key, Secret Key, Project ID, región, servicio.
+2. 15 servicios: ECS, EVS, EIP, OBS, CBR, ELB, RDS, DCS, VPC, NAT, VPN,
+   Cloud Eye, HSS, WAF, CFW.
+3. Tablas de resultados con encabezado fijo, badges de estado, buscador,
+   filtros y ordenación.
+4. Drawer de detalles con metadatos completos de cada recurso.
+5. Exportación a Excel multi-hoja con estilos y hoja de "Avisos".
+6. Modo oscuro/claro (solo preferencia en localStorage).
+7. Manejo de errores: 401 → error rojo, 403 → aviso ámbar.
+
+
+FLUJO DE DATOS
+--------------------------------------------------------------------------------
+Frontend → POST /api/inventory {ak, sk, project_id, region, service}
+  → inventory.py: consultar_servicio()
+    → SDK Huawei → make_serializable() → tablas normalizadas
+  ← JSON {tables, resumen, errores, avisos}
+Frontend → renderiza tablas, resumen, drawer
+Frontend → POST /api/export → openpyxl → .xlsx descargable
+
+
+SEGURIDAD IMPLEMENTADA
+--------------------------------------------------------------------------------
+- Credenciales nunca se almacenan (ni localStorage ni servidor).
+- Project ID enmascarado en respuestas (0123ab…cdef).
+- Errores sin AK/SK (solo HTTP status, Request ID, Error Code).
+- Solo escucha en 127.0.0.1:8000.
+
+
+ESTADO ACTUAL Y PENDIENTES
+--------------------------------------------------------------------------------
+Funciona:
+  - Estructura completa, 15 servicios, exportación, UI profesional.
+
+Bloqueado por:
+  - Credenciales actuales devuelven 401 Unauthorized — se necesitan AK/SK
+    válidas para ver datos reales.
+
+Posibles mejoras futuras:
+  - ECS, EVS y VPC tienen paginación completa; los demás servicios usan una
+    página (limit=100).
+  - "Todos los servicios" consulta 15 APIs secuencialmente — podría tardar.
+  - Sin tests automatizados de integración.
+  - Sin base de datos (solo sesión en memoria).
+================================================================================

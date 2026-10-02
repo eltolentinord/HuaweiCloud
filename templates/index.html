@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Huawei Cloud Inventory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+          colors: {
+            brand: {
+              50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+              400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+              800: '#1e40af', 900: '#1e3a8a',
+            }
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.2s ease-out',
+            'slide-in': 'slideIn 0.3s ease-out',
+            'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            slideIn: { '0%': { transform: 'translateX(100%)' }, '100%': { transform: 'translateX(0)' } },
+            pulseSoft: { '0%, 100%': { opacity: '1' }, '50%': { opacity: '0.7' } },
+          }
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="h-full bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-200 font-sans antialiased">
+  <div class="flex h-full">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="hidden lg:flex lg:flex-col w-60 shrink-0 bg-slate-900 text-slate-300">
+      <div class="flex items-center gap-3 px-5 h-16 border-b border-slate-800">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 grid place-items-center text-white shadow-lg shadow-blue-500/20">
+          <i data-lucide="cloud" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <span class="font-bold text-white text-sm leading-tight block">Huawei Cloud</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Inventory</span>
+        </div>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-0.5">
+        <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>Dashboard
+        </a>
+        <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-slate-800 text-white">
+          <i data-lucide="server" class="w-4 h-4"></i>Inventario
+        </a>
+        <a href="#" id="navExport" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Exportar Excel
+        </a>
+        <a href="#" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
+          <i data-lucide="settings" class="w-4 h-4"></i>Configuración
+        </a>
+      </nav>
+      <div class="p-4 border-t border-slate-800 space-y-3">
+        <span class="inline-flex items-center gap-2 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/30">
+          <i data-lucide="lock" class="w-3 h-3"></i>Read-only
+        </span>
+        <p class="text-[10px] text-slate-500 leading-relaxed">Solo lectura. No crea, modifica ni elimina recursos.</p>
+      </div>
+    </aside>
+
+    <!-- ============ MAIN COLUMN ============ -->
+    <div class="flex-1 flex flex-col min-w-0">
+      <!-- Topbar -->
+      <header class="h-16 shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 md:px-6">
+        <div class="flex items-center gap-3 min-w-0">
+          <h1 class="text-sm md:text-base font-bold truncate hidden sm:block">Plataforma de inventario cloud</h1>
+          <div id="topMeta" class="hidden md:flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300 font-medium">
+              <i data-lucide="globe" class="w-3 h-3"></i><span id="topRegion">—</span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 font-medium">
+              <i data-lucide="fingerprint" class="w-3 h-3"></i><span id="topProject">—</span>
+            </span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btnHelp" title="Ayuda" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <i data-lucide="help-circle" class="w-4 h-4"></i>
+          </button>
+          <button id="btnDark" title="Modo claro/oscuro" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <i data-lucide="moon" class="w-4 h-4 dark:hidden"></i>
+            <i data-lucide="sun" class="w-4 h-4 hidden dark:block"></i>
+          </button>
+          <button id="btnNueva" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i><span class="hidden sm:inline">Nueva consulta</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto">
+        <div class="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
+
+          <!-- Alertas -->
+          <div id="alerts" class="space-y-3"></div>
+
+          <!-- Tarjeta de conexión -->
+          <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 grid place-items-center">
+                  <i data-lucide="key-round" class="w-4 h-4 text-blue-600 dark:text-blue-400"></i>
+                </div>
+                <div>
+                  <h2 class="text-sm font-bold">Conexión con Huawei Cloud</h2>
+                  <p class="text-xs text-slate-500">Ingresa tus credenciales para consultar el inventario</p>
+                </div>
+              </div>
+              <button id="btnCredHelp" class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 font-medium flex items-center gap-1">
+                <i data-lucide="info" class="w-3 h-3"></i>¿Cómo obtener credenciales?
+              </button>
+            </div>
+            <form id="frmConsulta" class="p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Access Key</span>
+                <input id="ak" type="text" autocomplete="off" spellcheck="false" class="mt-1.5 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-shadow" placeholder="AKLT..." required />
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Secret Key</span>
+                <div class="mt-1.5 flex">
+                  <input id="sk" type="password" autocomplete="off" spellcheck="false" class="w-full rounded-l-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-shadow" placeholder="••••••••" required />
+                  <button type="button" id="btnVerSk" class="px-3 border border-l-0 border-slate-300 dark:border-slate-700 rounded-r-lg text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors" title="Mostrar / ocultar">
+                    <i data-lucide="eye" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Project ID</span>
+                <input id="projectId" type="text" autocomplete="off" spellcheck="false" class="mt-1.5 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-shadow" placeholder="0123456789abcdef..." required />
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Región</span>
+                <select id="region" class="mt-1.5 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-shadow">
+                  {% for r in regiones %}
+                  <option value="{{ r.id }}" {% if r.id == "ap-southeast-3" %}selected{% endif %}>{{ r.id }} — {{ r.nombre }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Servicio</span>
+                <select id="service" class="mt-1.5 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-shadow">
+                  {% for s in servicios %}
+                  <option value="{{ s.id }}" {% if s.id == "todos" %}selected{% endif %}>{{ s.nombre }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <div class="flex items-end gap-2">
+                <button id="btnConsultar" type="submit" class="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                  <i data-lucide="search" class="w-4 h-4"></i><span id="btnConsultarText">Consultar</span>
+                </button>
+                <button id="btnLimpiar" type="button" class="px-4 py-2.5 rounded-lg text-sm font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Limpiar</button>
+              </div>
+            </form>
+            <div class="px-5 py-3 bg-amber-50 dark:bg-amber-400/5 border-t border-amber-100 dark:border-amber-400/20">
+              <p class="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <i data-lucide="shield-alert" class="w-4 h-4 shrink-0"></i>
+                Las credenciales se utilizan únicamente durante esta consulta y no se almacenan.
+              </p>
+            </div>
+          </section>
+
+          <!-- Resumen -->
+          <section id="summary" class="hidden grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3"></section>
+
+          <!-- Resultados -->
+          <section id="results" class="hidden bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-3">
+              <div class="relative flex-1 min-w-[200px] max-w-sm">
+                <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                <input id="q" type="text" placeholder="Buscar por nombre o IP..." class="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-shadow" />
+              </div>
+              <select id="fEstado" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none">
+                <option value="">Todos los estados</option>
+              </select>
+              <select id="orden" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none">
+                <option value="">Sin ordenar</option>
+                <option value="nombre">Por nombre</option>
+                <option value="estado">Por estado</option>
+                <option value="vcpu">Por vCPU</option>
+                <option value="ram">Por RAM</option>
+              </select>
+              <span id="contador" class="text-xs text-slate-500 font-medium"></span>
+              <button id="btnExportar" class="ml-auto hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm">
+                <i data-lucide="download" class="w-4 h-4"></i>Exportar Excel
+              </button>
+            </div>
+            <div id="tables" class="p-5 space-y-6"></div>
+          </section>
+
+          <!-- Empty state -->
+          <section id="emptyState" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-10 text-center">
+            <div class="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 grid place-items-center mx-auto mb-4">
+              <i data-lucide="cloud-off" class="w-8 h-8 text-slate-400"></i>
+            </div>
+            <h3 class="text-lg font-bold mb-2">Sin resultados</h3>
+            <p class="text-sm text-slate-500 max-w-md mx-auto mb-4">Ingresa tus credenciales arriba y pulsa <strong>Consultar</strong> para ver el inventario de tus recursos en Huawei Cloud.</p>
+            <div class="flex items-center justify-center gap-4 text-xs text-slate-400">
+              <span class="flex items-center gap-1"><i data-lucide="shield-check" class="w-3 h-3"></i>Solo lectura</span>
+              <span class="flex items-center gap-1"><i data-lucide="lock" class="w-3 h-3"></i>Credenciales no almacenadas</span>
+              <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i>Consulta en tiempo real</span>
+            </div>
+          </section>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Drawer de detalles -->
+  <div id="drawerOverlay" class="hidden fixed inset-0 bg-black/30 z-40 backdrop-blur-[2px]"></div>
+  <aside id="drawer" class="fixed right-0 top-0 h-full w-full sm:w-[30rem] bg-white dark:bg-slate-900 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 overflow-y-auto">
+    <div class="flex items-center justify-between px-5 h-16 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900 z-10">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 grid place-items-center">
+          <i data-lucide="info" class="w-4 h-4 text-blue-600 dark:text-blue-400"></i>
+        </div>
+        <h3 class="font-bold text-sm">Detalles del recurso</h3>
+      </div>
+      <button id="drawerClose" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <dl id="drawerBody" class="p-5 grid grid-cols-1 gap-4 text-sm"></dl>
+  </aside>
+
+  <!-- Help Modal -->
+  <div id="helpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-[2px]" id="helpOverlay"></div>
+    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-5 h-14 border-b border-slate-200 dark:border-slate-800">
+        <h3 class="font-bold text-sm flex items-center gap-2"><i data-lucide="help-circle" class="w-4 h-4 text-blue-600"></i>¿Cómo usar?</h3>
+        <button id="helpClose" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+      <div class="p-5 space-y-4 text-sm text-slate-600 dark:text-slate-300">
+        <div>
+          <h4 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">1. Obtén tus credenciales</h4>
+          <p class="text-xs">Ve a la consola de Huawei Cloud → IAM → Mis credenciales → Claves de acceso. Crea o copia tu Access Key (AK) y Secret Key (SK).</p>
+        </div>
+        <div>
+          <h4 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">2. Ingresa los datos</h4>
+          <p class="text-xs">Pega tu AK, SK y Project ID en el formulario. Selecciona la región donde están tus recursos.</p>
+        </div>
+        <div>
+          <h4 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">3. Elige el servicio</h4>
+          <p class="text-xs">Puedes consultar un servicio específico (ECS, EVS, VPC, etc.) o todos a la vez con "Todos los servicios".</p>
+        </div>
+        <div>
+          <h4 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">4. Consulta y exporta</h4>
+          <p class="text-xs">Pulsa <strong>Consultar</strong>. Usa el buscador y filtros para encontrar recursos. Pulsa <strong>Exportar Excel</strong> para descargar los resultados.</p>
+        </div>
+        <div class="bg-blue-50 dark:bg-blue-500/10 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300">
+          <strong>Nota:</strong> Las credenciales se envían solo a Huawei Cloud durante la consulta y nunca se guardan en el navegador ni en el servidor.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

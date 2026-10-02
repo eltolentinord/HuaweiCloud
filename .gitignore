@@ -1,0 +1,21 @@
+# Entorno y cachés
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secretos: nunca subir credenciales
+.env
+.env.*
+!.env.example
+config.json
+*.json
+
+# Resultados generados (JSON por ECS, Excel de costos)
+output/
+*.xlsx
+
+# Claves maestras y datos locales de PostgreSQL
+*.key
+*.pem
+pgdata/

@@ -1,0 +1,36 @@
+# Servidor web
+fastapi==0.142.2
+uvicorn==0.54.0
+jinja2==3.1.6
+pydantic==2.13.5
+
+# Excel
+openpyxl==3.1.5
+
+# Base de datos (Fase 2)
+sqlalchemy==2.1.1
+alembic==1.20.0
+psycopg[binary]==3.3.6
+
+# Cifrado de credenciales (Fernet)
+cryptography==50.0.2
+
+# SDK oficiales de Huawei Cloud (misma versión en todos)
+huaweicloudsdkcore==3.1.216
+huaweicloudsdkecs==3.1.216
+huaweicloudsdkevs==3.1.216
+huaweicloudsdkeip==3.1.216
+huaweicloudsdkobs==3.1.216
+huaweicloudsdkcbr==3.1.216
+huaweicloudsdkelb==3.1.216
+huaweicloudsdkrds==3.1.216
+huaweicloudsdkdcs==3.1.216
+huaweicloudsdkvpc==3.1.216
+huaweicloudsdknat==3.1.216
+huaweicloudsdkvpn==3.1.216
+huaweicloudsdkces==3.1.216
+huaweicloudsdkhss==3.1.216
+huaweicloudsdkwaf==3.1.216
+huaweicloudsdkcfw==3.1.216
+huaweicloudsdkbss==3.1.216
+huaweicloudsdkiam==3.1.216

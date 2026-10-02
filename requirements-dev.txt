@@ -1,0 +1,5 @@
+-r requirements.txt
+# Necesario para fastapi.testclient (tests de la API)
+httpx==0.28.1
+# PostgreSQL embebido para tests de migraciones cuando no hay TEST_DATABASE_URL
+pgserver==0.1.4
