@@ -25,6 +25,7 @@ from routers.common import install_safe_validation_errors, inventory_response
 from routers.deps import _keyring_from_env, get_cipher  # noqa: F401  (reexportados)
 from core.authz import Permission, Principal
 from routers.security import get_principal, requires
+from routers.costs_api import router as costs_api_router
 from routers.exports_api import router as exports_api_router
 from routers.inventory_api import router as inventory_api_router
 from routers.schedules_api import router as schedules_api_router
@@ -184,6 +185,7 @@ def install_admin_api(app: FastAPI) -> None:
     app.include_router(inventory_api_router, dependencies=protected)
     app.include_router(exports_api_router, dependencies=protected)
     app.include_router(schedules_api_router, dependencies=protected)
+    app.include_router(costs_api_router, dependencies=protected)
 
     @app.exception_handler(TenancyError)
     async def _tenancy(request: Request, exc: TenancyError):

@@ -43,7 +43,9 @@ router = APIRouter(prefix="/api/clients/{client_id}/accounts/{account_id}/export
 
 MEDIA = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
          "csv": "text/csv; charset=utf-8"}
-FormatParam = Query("xlsx", pattern="^(xlsx|csv)$")
+def FormatParam():
+    """Un objeto Query nuevo por parámetro (compartirlo entre parámetros enlaza mal los nombres)."""
+    return Query("xlsx", pattern="^(xlsx|csv)$")
 
 
 def _download(buffer, fmt: str, account_name: str, kind: str) -> StreamingResponse:
@@ -54,7 +56,7 @@ def _download(buffer, fmt: str, account_name: str, kind: str) -> StreamingRespon
 
 
 @router.get("/inventory")
-def export_inventory(client_id: uuid.UUID, account_id: uuid.UUID, format: str = FormatParam,
+def export_inventory(client_id: uuid.UUID, account_id: uuid.UUID, format: str = FormatParam(),
                      service: Optional[str] = None, region: Optional[str] = None,
                      resource_type: Optional[str] = None, project_id: Optional[uuid.UUID] = None,
                      status: Optional[str] = None, search: Optional[str] = Query(None, max_length=200),
@@ -77,7 +79,7 @@ def export_inventory(client_id: uuid.UUID, account_id: uuid.UUID, format: str = 
 
 
 @router.get("/summary")
-def export_summary(client_id: uuid.UUID, account_id: uuid.UUID, format: str = FormatParam,
+def export_summary(client_id: uuid.UUID, account_id: uuid.UUID, format: str = FormatParam(),
                    db: Session = Depends(get_db)):
     account = get_account(db, client_id, account_id)
     last = scans_repo.list_for_account(db, account.id, limit=1)
@@ -89,7 +91,7 @@ def export_summary(client_id: uuid.UUID, account_id: uuid.UUID, format: str = Fo
 
 @router.get("/compare")
 def export_compare(client_id: uuid.UUID, account_id: uuid.UUID, from_scan: uuid.UUID, to_scan: uuid.UUID,
-                   format: str = FormatParam, db: Session = Depends(get_db)):
+                   format: str = FormatParam(), db: Session = Depends(get_db)):
     account = get_account(db, client_id, account_id)
     comparison = compare_scans(db, client_id=client_id, account_id=account.id,
                                from_scan=from_scan, to_scan=to_scan)
