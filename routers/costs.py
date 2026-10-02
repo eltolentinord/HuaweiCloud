@@ -42,6 +42,12 @@ async def costos_page(request: Request):
     return TEMPLATES.TemplateResponse(request, "costs.html", {})
 
 
+@router.get("/costos/comparar-regiones", response_class=HTMLResponse)
+async def comparar_regiones_page(request: Request):
+    """Comparador de costos por región (usa la API interna: INVENTORY_ADMIN_API=true)."""
+    return TEMPLATES.TemplateResponse(request, "costs_compare.html", {})
+
+
 @router.post("/api/costs/compare")
 async def comparar_costos(payload: CompareRequest):
     if not payload.ak or not payload.sk or not payload.month_a or not payload.month_b:

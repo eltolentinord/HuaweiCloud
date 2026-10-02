@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comparador de costos por región · Huawei Cloud Inventory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } } };</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="h-full bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-200 font-sans antialiased">
+  <div class="flex h-full">
+    <aside class="hidden lg:flex lg:flex-col w-60 shrink-0 bg-slate-900 text-slate-300">
+      <div class="flex items-center gap-3 px-5 h-16 border-b border-slate-800">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 grid place-items-center text-white shadow-lg shadow-blue-500/20">
+          <i data-lucide="cloud" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <span class="font-bold text-white text-sm leading-tight block">Huawei Cloud</span>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Inventory</span>
+        </div>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-0.5">
+        <a href="/dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>Dashboard
+        </a>
+        <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
+          <i data-lucide="server" class="w-4 h-4"></i>Consulta directa
+        </a>
+        <a href="/costos" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
+          <i data-lucide="wallet" class="w-4 h-4"></i>Costos (BSS)
+        </a>
+        <a href="/costos/comparar-regiones" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-slate-800 text-white">
+          <i data-lucide="arrow-left-right" class="w-4 h-4"></i>Comparar regiones
+        </a>
+      </nav>
+      <div class="p-4 border-t border-slate-800">
+        <p class="text-[10px] text-slate-500 leading-relaxed">Simulación de costos. No crea, migra ni modifica recursos en Huawei Cloud.</p>
+      </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-w-0">
+      <header class="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 md:px-6 py-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="mr-auto">
+            <h1 class="text-base font-bold leading-tight">Comparador de costos por región</h1>
+            <p class="text-xs text-slate-500">Parte de un recurso real de tu inventario y simula cuánto costaría en otra región o con otra configuración.</p>
+          </div>
+          <button id="btnDark" title="Modo claro/oscuro" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"><i data-lucide="moon" class="w-4 h-4"></i></button>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto">
+        <div class="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
+          <div id="alerts" class="space-y-3"></div>
+
+          <div class="rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/20 px-4 py-3 text-sm text-blue-900 dark:text-blue-200 flex gap-3">
+            <i data-lucide="shield-check" class="w-5 h-5 shrink-0 mt-0.5"></i>
+            <p>Es solo una simulación: los recursos reales y el inventario no se modifican. Los precios provienen únicamente de fuentes oficiales
+              (consulta a Huawei Cloud BSS o tu tabla oficial). Si un precio no existe, se muestra <b>«precio no disponible»</b>; nunca se inventa.</p>
+          </div>
+
+          <!-- ============ 1. ORIGEN ============ -->
+          <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+            <div class="flex items-center gap-2 mb-4"><span class="step">1</span><h2 class="font-bold">Origen: un recurso real de tu inventario</h2></div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+              <label class="field">Cliente<select id="clientSelect" class="input"></select></label>
+              <label class="field">Cuenta de origen<select id="accountSelect" class="input"></select></label>
+              <label class="field">Inventario de origen<select id="scanSelect" class="input"></select></label>
+              <label class="field">Región de origen<select id="originRegion" class="input"></select></label>
+              <label class="field">Recurso<select id="resourceSelect" class="input"></select></label>
+            </div>
+            <div class="mt-3 flex flex-wrap items-center gap-3">
+              <button id="btnAdd" class="btn-primary"><i data-lucide="plus" class="w-4 h-4"></i>Agregar recurso</button>
+              <span id="resourceHint" class="text-xs text-slate-500"></span>
+            </div>
+          </section>
+
+          <!-- ============ 2. DESTINO Y MODO DE COBRO ============ -->
+          <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+            <div class="flex items-center gap-2 mb-4"><span class="step">2</span><h2 class="font-bold">Destino y forma de pago</h2></div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <label class="field">Región destino (para todos)<select id="destRegion" class="input"></select></label>
+              <label class="field">Modelo de cobro<select id="billingMode" class="input"></select></label>
+              <label class="field" id="hoursField">Horas de uso al mes<input id="hours" type="number" min="1" max="744" class="input" /></label>
+              <div class="field">Precios oficiales de la región destino
+                <div class="flex gap-2 mt-1">
+                  <button id="btnRefreshPrices" class="btn-secondary" title="Consulta a Huawei Cloud BSS los precios de lista de los componentes mostrados">
+                    <i data-lucide="download-cloud" class="w-4 h-4"></i>Consultar precios</button>
+                  <button id="btnRefreshFlavors" class="btn-secondary" title="Consulta a Huawei Cloud los flavors ECS disponibles en la región destino">
+                    <i data-lucide="list" class="w-4 h-4"></i>Flavors</button>
+                </div>
+              </div>
+            </div>
+            <p id="destInfo" class="mt-3 text-xs text-slate-500"></p>
+          </section>
+
+          <!-- ============ 3. RECURSOS A COMPARAR ============ -->
+          <section class="space-y-4">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="step">3</span><h2 class="font-bold mr-auto">Configuración y resultado</h2>
+              <button id="btnCompare" class="btn-primary"><i data-lucide="scale" class="w-4 h-4"></i>Comparar</button>
+              <button id="btnExportXlsx" class="btn-secondary"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Exportar comparación (Excel)</button>
+              <button id="btnExportCsv" class="btn-secondary"><i data-lucide="file-text" class="w-4 h-4"></i>CSV</button>
+            </div>
+            <div id="summary"></div>
+            <div id="items" class="space-y-4"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <datalist id="flavorList"></datalist>
+  <script src="/static/costs_compare.js"></script>
+</body>
+</html>

@@ -258,6 +258,15 @@ El worker usa PostgreSQL como cola (`FOR UPDATE SKIP LOCKED` + claim atómico): 
 workers no duplican trabajo y un reinicio no pierde escaneos pendientes. Con
 `INVENTORY_SCAN_EXECUTOR=worker` la API solo encola y el worker ejecuta.
 
+### Comparador de costos por región
+
+`/costos/comparar-regiones` (también desde la ficha de un recurso del dashboard): toma
+un ECS, EVS o EIP real del inventario y simula su costo en otra región o con otra
+configuración (flavor, discos, EIP, ancho de banda). Solo precios oficiales (Huawei
+Cloud BSS o tu tabla oficial); si falta uno se muestra "precio no disponible". No
+modifica recursos ni inventario. Detalle, fuentes y pendientes: [docs/COSTS.md](docs/COSTS.md).
+Requiere la migración `0008` (`alembic upgrade head`).
+
 ### Retención de datos
 
 ```powershell

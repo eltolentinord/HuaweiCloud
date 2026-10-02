@@ -259,6 +259,11 @@ class TestOfficialSources(CostCompareApiTestCase):
         self.assertEqual((known["destination_config"]["vcpus"], known["destination_config"]["ram_gb"]), (1, 2.0))
         self.assertTrue(any("depende del flavor" in w for w in known["warnings"]))
 
+    def test_refresh_is_capped(self):
+        with mock.patch("routers.cost_compare_api.MAX_QUOTES_PER_REFRESH", 2),                 mock.patch("costs.huawei_pricing.default_bss_builder", lambda clients: self.fail("no debe llamar")):
+            response = self.compare(("srv-1", {}), region=MX, path=f"{self.base}/prices/refresh")
+        self.assertEqual(response.status_code, 422)
+
     def test_refresh_without_project_in_region(self):
         with mock.patch("costs.huawei_pricing.default_bss_builder", lambda clients: FakeBss()):
             body = self.compare(("srv-1", {}), region=HK, path=f"{self.base}/prices/refresh").json()
@@ -343,3 +348,26 @@ class TestResolverSources(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestComparatorPage(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient  # noqa: PLC0415
+        from app import app  # noqa: PLC0415
+        self.http = TestClient(app)
+
+    def test_page_script_csp_and_internal_routes_only(self):
+        import re  # noqa: PLC0415
+        page = self.http.get("/costos/comparar-regiones")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('src="/static/costs_compare.js"', page.text)
+        csp = page.headers["Content-Security-Policy"]
+        for host in re.findall(r'(?:src|href)="(https://[^/"]+)', page.text):
+            self.assertIn(host, csp)
+        script = self.http.get("/static/costs_compare.js").text
+        self.assertIn("function esc(", script)
+        for path in re.findall(r"`(/api/[^`$?]*)", script):
+            self.assertTrue(path.startswith(("/api/admin/clients", "/api/clients/")), path)
+        self.assertNotRegex(script, r"\b(alert|confirm|prompt)\(")
+        self.assertIn('href="/costos/comparar-regiones"', self.http.get("/dashboard").text)
+        self.assertEqual(self.http.get("/costos").status_code, 200)  # la ruta existente sigue igual

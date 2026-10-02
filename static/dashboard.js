@@ -426,10 +426,13 @@
       <section><h4 class="font-bold text-xs uppercase tracking-wide text-slate-500 mb-2">Historial</h4>${r.recent_changes.map((c) => `<div class="text-xs py-1.5 border-b border-slate-100 dark:border-slate-800">
         <span class="font-semibold">${esc(CHANGE[c.change_type] || c.change_type)}</span> <span class="text-slate-500">· ${esc(fmtDate(c.created_at))}</span>
         ${c.changed_fields.map((f) => `<div class="ml-3 font-mono">${esc(f.field)}: ${esc(JSON.stringify(f.before))} → ${esc(JSON.stringify(f.after))}</div>`).join("")}</div>`).join("") || '<span class="text-xs text-slate-500">Sin cambios registrados</span>'}</section>
+      ${["ecs.server", "evs.volume", "eip.publicip"].includes(r.resource_type) ? `<a href="/costos/comparar-regiones?client=${encodeURIComponent(state.clientId)}&account=${encodeURIComponent(state.accountId)}&resource=${encodeURIComponent(r.id)}"
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700"><i data-lucide="arrow-left-right" class="w-4 h-4"></i>Comparar costo en otra región</a>` : ""}
       <details><summary class="font-bold text-xs uppercase tracking-wide text-slate-500 cursor-pointer">Datos técnicos</summary>
         <pre class="mt-2 text-[11px] bg-slate-50 dark:bg-slate-950 rounded-lg p-3 overflow-x-auto">${esc(JSON.stringify(r.attributes, null, 2))}</pre></details>`;
     $("drawer").classList.remove("translate-x-full");
     $("drawerOverlay").classList.remove("hidden");
+    icons();
   });
   function closeDrawer() { $("drawer").classList.add("translate-x-full"); $("drawerOverlay").classList.add("hidden"); }
   $("drawerClose").addEventListener("click", closeDrawer);

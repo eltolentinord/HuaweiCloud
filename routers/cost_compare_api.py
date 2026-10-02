@@ -47,6 +47,7 @@ from tenancy.errors import ValidationFailedError
 router = APIRouter(prefix="/api/clients/{client_id}/accounts/{account_id}/cost-compare", tags=["cost-compare"],
                    dependencies=[Depends(requires(Permission.COSTS_READ))])
 CALLS_HUAWEI = [Depends(requires(Permission.SCANS_RUN))]
+MAX_QUOTES_PER_REFRESH = 120  # una consulta BSS por componente distinto: límite de llamadas por petición
 
 
 class CompareItemIn(BaseModel):
@@ -203,10 +204,14 @@ def _clients(db: Session, cipher: SecretCipher, client_id: uuid.UUID, account_id
 def refresh_prices(client_id: uuid.UUID, account_id: uuid.UUID, body: CompareIn, db: Session = Depends(get_db),
                    cipher: SecretCipher = Depends(get_cipher), actor: Principal = Depends(get_principal)):
     service, items = _compare(db, client_id, account_id, body)
+    wanted = quotable_components(items)
+    if sum(len(c) for c in wanted.values()) > MAX_QUOTES_PER_REFRESH:
+        raise ValidationFailedError(f"Demasiados componentes distintos para una consulta (máximo "
+                                    f"{MAX_QUOTES_PER_REFRESH}); compara menos recursos a la vez.")
     clients = _clients(db, cipher, client_id, account_id)
     catalog = PriceCatalog(db)
     stored, failures = 0, []
-    for region, components in sorted(quotable_components(items).items()):
+    for region, components in sorted(wanted.items()):
         project = project_for_region(db, service.account.id, region)
         if project is None:
             failures += [{"component": c.label, "region": region,
@@ -219,7 +224,7 @@ def refresh_prices(client_id: uuid.UUID, account_id: uuid.UUID, body: CompareIn,
         stored += catalog.store(quotes)
         failures += failed
     audit.record(db, actor, "prices.refresh", client_id=client_id, account_id=service.account.id,
-                 details={"regions": sorted(quotable_components(items)), "fields": [f"stored={stored}",
+                 details={"regions": sorted(wanted), "fields": [f"stored={stored}",
                                                                                    f"failed={len(failures)}"]})
     return {"stored": stored, "failures": failures}
 
