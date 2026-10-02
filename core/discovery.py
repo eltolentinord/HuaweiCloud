@@ -46,7 +46,7 @@ class DiscoveredProject:
 @dataclass(frozen=True)
 class ResolvedProject:
     project: DiscoveredProject
-    region_id: Optional[str]
+    region_id: str  # solo se crean ResolvedProject con región resuelta
 
 
 class ProjectSource(Protocol):

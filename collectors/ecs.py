@@ -24,7 +24,9 @@ PAGE_SIZE = 100
 
 def extract_addresses(raw: Dict[str, Any]) -> Tuple[List[str], List[str], List[str]]:
     """IPs privadas, públicas (floating) y MACs a partir de ``addresses``."""
-    private, public, macs = [], [], []
+    private: List[str] = []
+    public: List[str] = []
+    macs: List[str] = []
     for entries in as_dict(raw.get("addresses")).values():
         for entry in as_list(entries):
             entry = entry if isinstance(entry, dict) else make_serializable(entry)

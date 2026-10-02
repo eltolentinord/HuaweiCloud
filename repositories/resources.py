@@ -26,7 +26,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -276,7 +276,7 @@ def list_for_account(
                       project_id=project_id, status=status, search=search,
                       include_deleted=include_deleted, only_deleted=only_deleted)
     total = session.scalar(select(func.count()).select_from(query.subquery()))
-    order = []
+    order: List[Any] = []
     for name, descending in parse_sort(sort):
         column = SORTABLE_FIELDS[name]
         order.append(column.desc().nulls_last() if descending else column.asc().nulls_last())
@@ -319,7 +319,7 @@ def _group_count(session: Session, account_id: uuid.UUID, column, *, deleted: bo
     condition = InventoryResource.deleted_at.is_not(None) if deleted else InventoryResource.deleted_at.is_(None)
     rows = session.execute(select(column, func.count()).where(InventoryResource.account_id == account_id, condition)
                            .group_by(column).order_by(column))
-    return {str(key) if key is not None else "": count for key, count in rows}
+    return {str(key) if key is not None else "": int(cast(int, count)) for key, count in rows}
 
 
 def stats_for_account(session: Session, account_id: uuid.UUID) -> Dict[str, Any]:

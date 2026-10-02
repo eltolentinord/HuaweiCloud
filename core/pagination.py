@@ -163,7 +163,7 @@ def paginate(
     completa ya vista (señal de que ignora la paginación), devuelve un formato
     inválido o se supera ``max_pages``. Nunca devuelve datos truncados en silencio.
     """
-    params: Optional[Params] = strategy.first()
+    params: Params = strategy.first()
     seen_cursors = set()
     seen_ids = set()
     items: List[Dict[str, Any]] = []
@@ -200,9 +200,10 @@ def paginate(
             logger.warning("%s: %d duplicados descartados en la página %d",
                            label, len(page.items) - new_items, page_number)
 
-        params = strategy.next(params, page, len(items))
-        if params is None:
+        next_params = strategy.next(params, page, len(items))
+        if next_params is None:
             break
+        params = next_params
     else:
         raise PaginationError(f"{label}: se superó el máximo de {max_pages} páginas")
 

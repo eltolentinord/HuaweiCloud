@@ -203,8 +203,9 @@ def public_error(error: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _status_code(exc: Exception) -> Optional[int]:
+    value = getattr(exc, "status_code", None)
     try:
-        return int(getattr(exc, "status_code", None))
+        return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
 
@@ -235,7 +236,7 @@ def classify_exception(
 ) -> ServiceError:
     """Traduce cualquier excepción a un ``ServiceError`` sin filtrar secretos."""
     secrets = tuple(secrets)
-    common = dict(
+    common: Dict[str, Any] = dict(
         service=service,
         region=region,
         project_id_masked=mask_project_id_ascii(project_id) if project_id else None,

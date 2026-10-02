@@ -114,8 +114,11 @@ class PriceTableProvider:
                     raise PriceTableError(f"Fila {number}: unit_price no es un número") from None
                 if price < 0 or not row["currency"].strip():
                     raise PriceTableError(f"Fila {number}: precio negativo o moneda vacía")
-                rules.append(PriceRule(*(row[c].strip() for c in REQUIRED_COLUMNS[:6]), price,
-                                       row["currency"].strip().upper(), row["source"].strip()))
+                rules.append(PriceRule(
+                    service=row["service"].strip(), resource_type=row["resource_type"].strip(),
+                    region=row["region"].strip(), match_attribute=row["match_attribute"].strip(),
+                    match_value=row["match_value"].strip(), quantity_attribute=row["quantity_attribute"].strip(),
+                    unit_price=price, currency=row["currency"].strip().upper(), source=row["source"].strip()))
         return cls(rules, name=f"tabla de precios ({path.name}, {len(rules)} reglas)")
 
     def price(self, resource: InventoryResource) -> Optional[Tuple[Decimal, str, str]]:

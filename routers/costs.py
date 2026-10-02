@@ -1,6 +1,7 @@
 # coding: utf-8
 """Router de análisis de costos (módulo separado de ECS)."""
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from services.cost_excel import generar_excel_costos
 from services.huawei_costs import CostApiError, consultar_mes
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 BASE = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(BASE / "templates"))
 
@@ -77,6 +79,7 @@ async def comparar_costos(payload: CompareRequest):
             "message": safe_message(error, (payload.ak, payload.sk)),
         }
     except Exception as error:
+        logger.warning("Comparación de costos fallida (%s)", type(error).__name__)
         return {"error": True,
                 "message": safe_message(f"{type(error).__name__}: {error}", (payload.ak, payload.sk))}
 
@@ -87,4 +90,5 @@ async def exportar_costos(payload: ExportRequest):
         ruta = generar_excel_costos(payload.analysis, payload.month_a, payload.month_b, BASE, errores=payload.errores)
         return FileResponse(ruta, filename=ruta.name)
     except Exception as error:
+        logger.exception("Exportación de costos fallida")
         return JSONResponse(status_code=500, content={"error": True, "message": safe_message(error)})

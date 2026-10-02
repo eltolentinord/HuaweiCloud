@@ -1,7 +1,7 @@
 # coding: utf-8
 """API de inventario: búsqueda, filtros, orden, detalle, historial, estadísticas, comparación."""
 
-from tests.scan_helpers import server, simulated_huawei
+from tests.scan_helpers import server
 from tests.test_scan_api import ScanApiTestCase
 
 

@@ -99,4 +99,4 @@ def compare_months(report_a: CostReport, report_b: CostReport) -> Dict[str, Any]
         return [{"region": l.region or "Sin región", "product": l.service, "currency": l.currency,
                  "amount": float(l.amount)} for l in report.lines + report.unmatched]
 
-    return analizar(records(report_a), records(report_b), report_a.period, report_b.period)
+    return analizar(records(report_a), records(report_b), report_a.period or "", report_b.period or "")

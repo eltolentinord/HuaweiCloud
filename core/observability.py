@@ -22,7 +22,7 @@ import os
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("request_id", default=None)
 scan_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("scan_id", default=None)
@@ -44,7 +44,7 @@ class ContextFilter(logging.Filter):
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        data = {
+        data: Dict[str, Any] = {
             "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(timespec="milliseconds"),
             "level": record.levelname,
             "logger": record.name,

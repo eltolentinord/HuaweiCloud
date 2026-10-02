@@ -15,7 +15,7 @@ FERNET_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}=(?![A-Za-z0-9_
 DB_PASSWORD_PATTERN = re.compile(r"postgresql(?:\+\w+)?://[^:/\s@]+:(?!CLAVE@)[^@\s/]+@")
 PATTERNS = (AK_PATTERN, SK_PATTERN, FERNET_PATTERN, DB_PASSWORD_PATTERN)
 SCANNED = {".py", ".json", ".html", ".js", ".txt", ".md", ".css", ".example", ".ini", ".mako", ".cfg", ".toml"}
-EXCLUDED_DIRS = {".venv", "__pycache__", ".git", "output"}
+EXCLUDED_DIRS = {".venv", "__pycache__", ".git", "output", ".mypy_cache", ".pytest_cache"}
 
 
 def project_files():

@@ -220,8 +220,9 @@ class SimpleListCollector(BaseCollector):
             getattr(client, self.method),
             lambda **params: request_cls(**filters, **params),
             self.strategy(),
-            items=self.items_field,
-            total=self.total_field,
+            # type(self): un callable de clase accedido por instancia sería un método enlazado
+            items=type(self).items_field,
+            total=type(self).total_field,
             next_token=self.next_token,
             id_key=self.id_key,
         )

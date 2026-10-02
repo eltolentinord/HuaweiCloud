@@ -3,3 +3,6 @@
 httpx==0.28.1
 # PostgreSQL embebido para tests de migraciones cuando no hay TEST_DATABASE_URL
 pgserver==0.1.4
+
+# Comprobación de tipos (opcional): python -m mypy core collectors repositories scanning tenancy routers costs exports presentation db app.py inventory.py manage.py --ignore-missing-imports --follow-imports=silent --explicit-package-bases --namespace-packages
+mypy==1.18.2

@@ -103,10 +103,10 @@ def diff_events(events: List[ResourceChange]) -> List[ResourceDiff]:
 
 def compare_scans(session: Session, *, client_id: uuid.UUID, account_id: uuid.UUID,
                   from_scan: uuid.UUID, to_scan: uuid.UUID) -> ScanComparison:
-    runs = {rid: scans_repo.get_for_client(session, client_id, rid) for rid in (from_scan, to_scan)}
-    if any(run is None or run.account_id != account_id for run in runs.values()):
+    first = scans_repo.get_for_client(session, client_id, from_scan)
+    second = scans_repo.get_for_client(session, client_id, to_scan)
+    if first is None or second is None or first.account_id != account_id or second.account_id != account_id:
         raise NotFoundError("Escaneo no encontrado para esta cuenta.")
-    first, second = runs[from_scan], runs[to_scan]
     swapped = first.sequence > second.sequence
     if swapped:
         first, second = second, first

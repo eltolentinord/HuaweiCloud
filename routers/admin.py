@@ -153,7 +153,8 @@ def discover_projects(client_id: uuid.UUID, account_id: uuid.UUID, db: Session =
             "mensaje": exc.error.message, "http_status": exc.error.http_status,
             "error_code": exc.error.error_code, "request_id": exc.error.request_id,
         })
-    return DiscoveryOut(**result.summary(), projects=projects.list_projects(db, client_id, account_id))
+    return DiscoveryOut(**result.summary(), projects=[ProjectOut.model_validate(p) for p in
+                                                       projects.list_projects(db, client_id, account_id)])
 
 
 # ------------------------------------------------- inventario por cuenta

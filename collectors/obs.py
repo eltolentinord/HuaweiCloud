@@ -13,12 +13,15 @@ quien presenta los datos. Un bucket sin ``location`` queda con región vacía.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 from collectors.base import BaseCollector, CollectorContext
 from core.models import CollectionResult, Resource
 from core.pagination import SinglePage
 from core.serialization import first_present
+
+logger = logging.getLogger(__name__)
 
 
 class ObsCollector(BaseCollector):
@@ -37,8 +40,8 @@ class ObsCollector(BaseCollector):
             if callable(close):
                 try:
                     close()
-                except Exception:  # el cierre nunca debe ocultar el resultado
-                    pass
+                except Exception as exc:  # el cierre nunca debe ocultar el resultado
+                    logger.debug("No se pudo cerrar el cliente OBS (%s)", type(exc).__name__)
         return CollectionResult(resources=[self.normalize(ctx, b) for b in buckets])
 
     @staticmethod

@@ -12,7 +12,7 @@ from unittest import mock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.db_helpers import SqliteTestCase, make_keyring
+from tests.db_helpers import SqliteTestCase
 from tests.helpers import FAKE_AK, FAKE_SK
 from tests.scan_helpers import ScanWorld, seed_account, server, simulated_huawei
 from tests.test_admin_api import AdminApiTestCase

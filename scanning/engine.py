@@ -228,6 +228,8 @@ def _job_for(session: Session, account: CloudAccount, task: ScanTask) -> Optiona
 def _record_failure(task: ScanTask, result: ServiceRun) -> None:
     """Registra el error sin tocar recursos. 403/401 de autorización/API inexistente = aviso."""
     error = result.error
+    if error is None:  # solo se llama con error; defensa ante uso incorrecto
+        return
     if error.kind in DENIED_KINDS:
         task.status = "denied"
     elif error.kind == UNAVAILABLE:
@@ -423,6 +425,7 @@ def _execute(session_factory: sessionmaker, cipher: SecretCipher, run_id: uuid.U
                     try:
                         result = future.result()
                     except Exception as exc:  # no debería ocurrir: run_collector no lanza
+                        logger.exception("Fallo inesperado del worker en %s/%s", job.service, job.region)
                         result = ServiceRun(service=job.service, scope=job.scope, region=job.region,
                                             error=classify_exception(exc, service=job.service, secrets=secrets))
                     try:

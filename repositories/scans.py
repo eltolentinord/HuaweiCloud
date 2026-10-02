@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
 from db.models import CloudAccount, ScanRun, ScanTask
@@ -60,10 +60,10 @@ def is_stale(run: ScanRun, *, now: datetime, max_silence) -> bool:
 
 def claim_pending(session: Session, run_id: uuid.UUID, *, now: datetime) -> bool:
     """Pasa ``pending → running`` de forma ATÓMICA. ``False`` si otro proceso ya lo tomó."""
-    result = session.execute(
+    result = cast(CursorResult, session.execute(
         update(ScanRun).where(ScanRun.id == run_id, ScanRun.status == "pending")
         .values(status="running", started_at=now, updated_at=now)
-        .execution_options(synchronize_session=False))
+        .execution_options(synchronize_session=False)))
     return result.rowcount == 1
 
 

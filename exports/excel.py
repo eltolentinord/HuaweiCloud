@@ -89,7 +89,8 @@ def _detail_columns(columns: Sequence[str], rows: Sequence[Dict[str, Any]]) -> L
 
 def _cell_value(row: Dict[str, Any], column: str) -> Any:
     value = row.get(column)
-    detail = row.get("_detalle") if isinstance(row.get("_detalle"), dict) else {}
+    raw_detail = row.get("_detalle")
+    detail: Dict[str, Any] = raw_detail if isinstance(raw_detail, dict) else {}
     if (value is None or value == "") and column in detail:
         value = detail[column]
     if value is None:

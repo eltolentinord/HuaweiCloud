@@ -215,6 +215,72 @@ Reglas del motor:
   sin latido durante 60 min se considera abandonado y se libera.
 - Filtros: `--region` / `--project` (CLI) o `regions` / `project_ids` (API).
 
+## Fase 4: plataforma de inventario
+
+### Dashboard
+
+`http://127.0.0.1:8000/dashboard` (requiere `DATABASE_URL` e `INVENTORY_ADMIN_API=true`):
+cliente/cuenta, KPIs, recursos por servicio y región, historial de escaneos con progreso,
+comparación entre escaneos, tabla de recursos con filtros, detalle con historial y
+exportaciones. La consulta directa con AK/SK sigue en `/`.
+
+```powershell
+$env:INVENTORY_ADMIN_API = "true"
+python app.py        # http://127.0.0.1:8000/dashboard
+```
+
+### API (`/api/clients/{client_id}/…`)
+
+| Ruta | Permiso | Descripción |
+|---|---|---|
+| `GET overview` | inventory:read | Cuentas, proyectos, regiones, último escaneo |
+| `GET accounts/{id}/stats` | inventory:read | Totales por servicio/región/tipo/proyecto/estado + cambios del último escaneo |
+| `GET accounts/{id}/resources` | inventory:read | `search`, `service`, `region`, `resource_type`, `project_id`, `status`, `include_deleted`, `only_deleted`, `sort` (p. ej. `-last_seen,name`), `limit`, `offset` |
+| `GET accounts/{id}/resources/{rid}` · `/history` | inventory:read | Detalle con `raw` (redactado) e historial de cambios |
+| `GET scans/{scan_id}/changes` | inventory:read | Recursos nuevos, modificados, restaurados y eliminados en un escaneo |
+| `GET accounts/{id}/scans/compare?from_scan=&to_scan=` | inventory:read | Diferencias entre dos escaneos (identidad estable, no el nombre) |
+| `GET accounts/{id}/exports/inventory\|summary\|compare?format=xlsx\|csv` | exports:read | Exportaciones (CSV protegido contra formula injection) |
+| `GET accounts/{id}/costs/estimate\|actual\|compare` | costs:read | Costos (ver [docs/COSTS.md](docs/COSTS.md)) |
+| `GET/POST/PATCH/DELETE accounts/{id}/schedules` | scans:read / schedules:manage | Escaneos programados |
+
+Listas paginadas con `{items, total, limit, offset}`; errores con `{detail}` y cabecera
+`X-Request-ID`.
+
+### Escaneos programados (worker)
+
+```powershell
+python manage.py schedule create miempresa <ACCOUNT_ID> --every 360 --service ecs --service evs --service vpc
+python manage.py worker              # proceso aparte; Ctrl+C para detener
+python manage.py worker --once       # un solo ciclo (útil con el Programador de tareas de Windows)
+```
+
+El worker usa PostgreSQL como cola (`FOR UPDATE SKIP LOCKED` + claim atómico): varios
+workers no duplican trabajo y un reinicio no pierde escaneos pendientes. Con
+`INVENTORY_SCAN_EXECUTOR=worker` la API solo encola y el worker ejecuta.
+
+### Seguridad
+
+- API interna: `INVENTORY_ADMIN_TOKEN` (Bearer, ≥ 32 caracteres) o, sin token, solo local.
+- Roles por cliente `viewer` / `operator` / `admin`; sin rol → 404, rol insuficiente → 403.
+  Login de usuarios: plan en [docs/AUTH.md](docs/AUTH.md).
+- SSRF: `endpoint_domain` en lista blanca (`myhuaweicloud.com`, `.eu`, +
+  `INVENTORY_ALLOWED_ENDPOINT_DOMAINS`); regiones validadas antes de formar URLs.
+- Cabeceras de seguridad (CSP, nosniff, DENY), `Cache-Control: no-store` en `/api`, CORS
+  solo con orígenes explícitos, errores 500 sin detalles internos.
+
+### Observabilidad
+
+- `X-Request-ID` en cada respuesta; `request_id`, `scan_id` y `task_id` en cada log.
+- `LOG_FORMAT=json` para logs estructurados.
+- `GET /healthz`, `GET /readyz` (base de datos), `GET /metrics` (Prometheus, protegido).
+
+### Calidad
+
+```powershell
+python -m unittest discover -s tests -t .     # ningún test sale a Internet (guardia de red)
+python -m mypy core collectors repositories scanning tenancy routers costs exports presentation db app.py inventory.py manage.py --ignore-missing-imports --follow-imports=silent --explicit-package-bases --namespace-packages
+```
+
 ## Validación con Huawei Cloud real
 
 ### Clasificación de errores (`core/errors.py`)

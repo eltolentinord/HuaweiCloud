@@ -5,7 +5,6 @@ import unittest
 
 from tests.db_helpers import SqliteTestCase
 from tests.helpers import FAKE_AK, FAKE_SK
-from tests.scan_helpers import simulated_huawei
 from tests.test_scan_api import ScanApiTestCase
 
 from core.authz import (

@@ -43,4 +43,5 @@ async def _safe_validation_handler(request: Request, exc: RequestValidationError
 
 
 def install_safe_validation_errors(app: FastAPI) -> None:
-    app.add_exception_handler(RequestValidationError, _safe_validation_handler)
+    # La anotación de Starlette exige Exception genérica; el manejador es válido para su subclase.
+    app.add_exception_handler(RequestValidationError, _safe_validation_handler)  # type: ignore[arg-type]
