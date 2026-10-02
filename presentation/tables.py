@@ -265,7 +265,8 @@ HSS = TableSpec(
     "hss.protected_server",
     "HSS - Servidores protegidos",
     [("Hostname", name), ("IP", attr("ip")), ("SO", attr("os")), ("Protección", attr("protect_status")),
-     ("Estado host", attr("agent_status")), ("Agente", attr("agent_version")), ("Región", region)],
+     ("Estado host", lambda r: to_text(r.attributes.get("host_status") or r.attributes.get("agent_status"))),
+     ("Agente", attr("agent_version")), ("Región", region)],
 )
 
 WAF = TableSpec(

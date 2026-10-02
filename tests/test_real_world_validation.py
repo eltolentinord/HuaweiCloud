@@ -230,7 +230,7 @@ class TestLegacyInventoryWithObservedResponses(unittest.TestCase):
             list_instances=lambda r: SimpleNamespace(instances=[], total_count=0, instance_num=0),
             list_vault=deny(OBSERVED_403["cbr"]), list_load_balancers=deny(OBSERVED_403["elb"]),
             list_nat_gateways=deny(OBSERVED_403["nat"]), list_alarm_rules=deny(OBSERVED_403["ces"]),
-            list_protection_servers=deny(OBSERVED_403["hss"]), list_instance=deny(OBSERVED_403["waf"]),
+            list_host_status=deny(OBSERVED_403["hss"]), list_instance=deny(OBSERVED_403["waf"]),
             list_firewall_list=deny(OBSERVED_403["cfw"]),
         )
 

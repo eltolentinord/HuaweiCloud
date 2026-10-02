@@ -189,16 +189,45 @@ class TestCfw(unittest.TestCase):
 
 class TestEnterpriseProjects(unittest.TestCase):
     def test_hss_sends_all_granted_eps(self):
-        client = single("list_protection_servers",
+        client = single("list_host_status",
                         SimpleNamespace(data_list=[{"host_id": "h1", "host_name": "web", "private_ip": "10.0.0.1",
                                                     "os_type": "Linux", "agent_status": "online"}],
                                         total_num=1))
         result = HssCollector().collect(context(client))
-        self.assertEqual(client.requests["list_protection_servers"][0].enterprise_project_id, ALL_GRANTED_EPS)
+        self.assertEqual(client.requests["list_host_status"][0].enterprise_project_id, ALL_GRANTED_EPS)
         r = result.resources[0]
         self.assertEqual((r.attributes["ip"], r.attributes["os"], r.attributes["agent_status"]),
                          ("10.0.0.1", "Linux", "online"))
         self.assertEqual(result.notices, [])
+
+    def test_hss_uses_host_inventory_api_with_real_sdk_model(self):
+        """Regresión de la prueba real: ListProtectionServers (/rasp/servers) daba 400 HSS.0002."""
+        from huaweicloudsdkhss.v5 import Host, ListHostStatusRequest
+        hosts = [Host(host_id=f"h{i}", host_name=f"web-{i}", private_ip=f"10.0.0.{i}", os_name="Ubuntu",
+                      os_type="Linux", host_status="ACTIVE", agent_status="online", protect_status="opened",
+                      version="hss.version.basic", resource_id=f"ecs-{i}") for i in range(130)]
+
+        def handler(request):
+            self.assertIsInstance(request, ListHostStatusRequest)
+            self.assertTrue(10 <= request.limit <= 200)  # rango documentado
+            return SimpleNamespace(data_list=hosts[request.offset: request.offset + request.limit],
+                                   total_num=len(hosts))
+        client = FakeClient(list_host_status=handler)
+        resources = HssCollector().collect(context(client)).resources
+        self.assertEqual(len(resources), 130)
+        first = resources[0]
+        self.assertEqual((first.provider_id, first.name, first.status), ("h0", "web-0", "opened"))
+        self.assertEqual((first.attributes["ecs_id"], first.attributes["host_status"], first.attributes["os"]),
+                         ("ecs-0", "ACTIVE", "Ubuntu"))
+        self.assertEqual([r.offset for r in client.requests["list_host_status"]], [0, 100])
+
+    def test_hss_permission_denied_is_a_warning(self):
+        def handler(request):
+            raise api_error(403, "Policy doesn't allow hss:hosts:list to be performed.", "HSS.1001")
+        client = FakeClient(list_host_status=handler)
+        from core.engine import run_collector
+        run = run_collector(HssCollector(), context(client))
+        self.assertEqual((run.error.kind, run.error.severity), ("permission", "aviso"))
 
     def test_waf_falls_back_without_eps_and_emits_notice(self):
         def handler(request):
