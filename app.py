@@ -80,6 +80,12 @@ def index(request: Request):
     )
 
 
+@app.get("/dashboard")
+def dashboard(request: Request):
+    """Dashboard del inventario persistido (usa la API interna: INVENTORY_ADMIN_API=true)."""
+    return templates.TemplateResponse(request, "dashboard.html", {})
+
+
 @app.post("/api/inventory")
 def inventory(payload: ConsultaRequest):
     servicio = payload.service.strip().lower()
