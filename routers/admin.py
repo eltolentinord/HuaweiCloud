@@ -26,6 +26,7 @@ from routers.deps import _keyring_from_env, get_cipher  # noqa: F401  (reexporta
 from core.authz import Permission, Principal
 from routers.security import get_principal, requires
 from routers.audit_api import router as audit_api_router
+from routers.cost_compare_api import router as cost_compare_api_router
 from routers.costs_api import router as costs_api_router
 from routers.exports_api import router as exports_api_router
 from routers.inventory_api import router as inventory_api_router
@@ -229,6 +230,7 @@ def install_admin_api(app: FastAPI) -> None:
     app.include_router(exports_api_router, dependencies=protected)
     app.include_router(schedules_api_router, dependencies=protected)
     app.include_router(costs_api_router, dependencies=protected)
+    app.include_router(cost_compare_api_router, dependencies=protected)
     app.include_router(audit_api_router, dependencies=protected)
 
     @app.exception_handler(TenancyError)

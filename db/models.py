@@ -26,6 +26,7 @@ from sqlalchemy import (
     Integer,
     JSON,
     LargeBinary,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -492,3 +493,60 @@ class AuditEvent(Base):
     target_id: Mapped[Optional[str]] = mapped_column(String(64))
     request_id: Mapped[Optional[str]] = mapped_column(String(64))
     details: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+
+
+# ---------------------------------------------------------------- Comparador de costos por región
+PRICE_PRODUCTS = ("ecs", "evs", "ip", "bandwidth")
+BILLING_MODES = ("on_demand", "monthly")
+PRICE_PERIODS = ("hour", "month")
+PRICE_SOURCES = ("huawei_bss",)
+
+
+class PriceCatalogEntry(Base):
+    """Precio OFICIAL de lista consultado a Huawei Cloud (nunca un valor inventado).
+
+    Es información pública de Huawei (``official_website_amount``), no datos del
+    cliente: el catálogo es compartido y no guarda descuentos ni importes facturados.
+    ``size`` es la cantidad exacta cotizada (GB, Mbps) o 0 si el producto no es lineal;
+    ``amount`` es el precio de esa configuración para un ``period`` (hora o mes).
+    """
+
+    __tablename__ = "price_catalog_entries"
+    __table_args__ = (
+        UniqueConstraint("source", "region", "product", "spec", "billing_mode", "size", name="uq_price_catalog_key"),
+        CheckConstraint(_in("product", PRICE_PRODUCTS), name="product"),
+        CheckConstraint(_in("billing_mode", BILLING_MODES), name="billing_mode"),
+        CheckConstraint(_in("period", PRICE_PERIODS), name="period"),
+        CheckConstraint(_in("source", PRICE_SOURCES), name="source"),
+        CheckConstraint("amount >= 0", name="amount_non_negative"),
+        Index("ix_price_catalog_lookup", "region", "product", "spec", "billing_mode"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_detail: Mapped[str] = mapped_column(String(200), nullable=False)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    product: Mapped[str] = mapped_column(String(16), nullable=False)
+    spec: Mapped[str] = mapped_column(String(100), nullable=False)
+    billing_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    amount: Mapped[object] = mapped_column(Numeric(20, 8), nullable=False)
+    period: Mapped[str] = mapped_column(String(8), nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class FlavorCatalogEntry(Base):
+    """Flavor ECS disponible en una región según ``ListFlavors`` (información pública)."""
+
+    __tablename__ = "flavor_catalog"
+    __table_args__ = (UniqueConstraint("region", "flavor_id"), Index("ix_flavor_catalog_region", "region"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    flavor_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    vcpus: Mapped[int] = mapped_column(Integer, nullable=False)
+    ram_mb: Mapped[int] = mapped_column(Integer, nullable=False)
+    performance_type: Mapped[Optional[str]] = mapped_column(String(64))
+    generation: Mapped[Optional[str]] = mapped_column(String(32))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
