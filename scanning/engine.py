@@ -135,7 +135,8 @@ def _select_projects(projects: List[Project], regions: Optional[Sequence[str]],
     return projects
 
 
-def _release_stale_run(session: Session, run: ScanRun, now: datetime) -> None:
+def release_stale_run(session: Session, run: ScanRun, now: datetime) -> None:
+    """Marca como fallido un escaneo abandonado (sin latido) y sus tareas sin terminar."""
     run.status = "failed"
     run.error_message_safe = "Escaneo abandonado (sin actividad); se liberó para permitir uno nuevo."
     run.finished_at = now
@@ -159,7 +160,7 @@ def create_scan(session: Session, *, client_id: uuid.UUID, account_id: uuid.UUID
     if active is not None:
         if not scans_repo.is_stale(active, now=now, max_silence=STALE_RUN_AFTER):
             raise ConflictError(f"Ya hay un escaneo en curso para esta cuenta ({active.id}).")
-        _release_stale_run(session, active, now)
+        release_stale_run(session, active, now)
 
     catalog = _select_services(_catalog(session), services)
     projects = projects_repo.list_for_account(session, account.id, enabled_only=True)
@@ -175,15 +176,18 @@ def create_scan(session: Session, *, client_id: uuid.UUID, account_id: uuid.UUID
                          "regions": sorted({p.region_id for p in projects}),
                          "filters": {"regions": sorted(regions or []),
                                      "project_ids": sorted(str(p) for p in (project_ids or []))}})
-    session.add(run)
-    for item in plan:
-        session.add(ScanTask(scan_run_id=run.id, sequence=item.sequence, service=item.service,
-                             scope=item.scope, region=item.region,
-                             project_id=item.project.id if item.project else None))
     try:
-        session.flush()
-    except IntegrityError:  # otra petición creó un escaneo activo en paralelo
-        session.rollback()
+        # SAVEPOINT: si otra petición creó un escaneo activo en paralelo (índice único
+        # parcial), solo se deshace esta creación; la transacción de quien llama (p. ej.
+        # el worker con la programación reclamada) sigue intacta.
+        with session.begin_nested():
+            session.add(run)
+            for item in plan:
+                session.add(ScanTask(scan_run_id=run.id, sequence=item.sequence, service=item.service,
+                                     scope=item.scope, region=item.region,
+                                     project_id=item.project.id if item.project else None))
+            session.flush()
+    except IntegrityError:
         raise ConflictError("Ya hay un escaneo en curso para esta cuenta.") from None
     logger.info("ScanRun creado id=%s cuenta=%s tareas=%d regiones=%s", run.id, account.id, len(plan),
                 run.stats["regions"])

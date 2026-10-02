@@ -13,6 +13,10 @@
     python manage.py project add acme <ACCOUNT_ID> <HUAWEI_PROJECT_ID> <REGION>
     python manage.py scan run acme <ACCOUNT_ID> [--service ecs] [--region la-north-2] [--project <ID>] [--workers 4]
     python manage.py scan show acme <SCAN_ID>
+    python manage.py schedule create acme <ACCOUNT_ID> --every 360 [--service ecs] [--region ...]
+    python manage.py schedule list acme <ACCOUNT_ID>
+    python manage.py schedule disable acme <ACCOUNT_ID> <SCHEDULE_ID>
+    python manage.py worker [--once] [--poll 30]     # ejecuta programaciones y escaneos en cola
 
 AK/SK se piden con getpass (no quedan en el historial de la consola). Con
 ``--from-env`` se leen de HUAWEI_AK / HUAWEI_SK. Nunca se imprimen.
@@ -31,7 +35,7 @@ from db.session import get_session_factory, session_scope
 from repositories import scans as scans_repo
 from scanning.engine import scan_account
 from scanning.settings import ScanSettings
-from tenancy import accounts, clients, projects
+from tenancy import accounts, clients, projects, schedules
 from tenancy.catalog_sync import sync_catalog
 from tenancy.errors import TenancyError
 from tenancy.projects import DiscoveryFailedError
@@ -130,6 +134,40 @@ def cmd_scan(args) -> None:
             print(f"  {task.service:<5} {task.region:<16} {task.status:<10} {task.resource_count:>5}{detail}")
 
 
+def cmd_schedule(args) -> None:
+    with session_scope() as session:
+        client_id = _client_id(session, args.client)
+        account_id = uuid.UUID(args.account_id)
+        if args.action == "create":
+            item = schedules.create_schedule(session, client_id=client_id, account_id=account_id,
+                                             interval_minutes=args.every, name=args.name,
+                                             services=args.service, regions=args.region)
+            print(f"{item.id}  cada {item.interval_minutes} min  próxima: {item.next_run_at:%Y-%m-%d %H:%M} UTC")
+        elif args.action == "disable":
+            schedules.update_schedule(session, client_id, account_id, uuid.UUID(args.schedule_id), enabled=False)
+            print("Programación deshabilitada")
+        else:
+            for item in schedules.list_schedules(session, client_id, account_id):
+                print(f"{item.id}  {'on ' if item.enabled else 'off'}  cada {item.interval_minutes:>5} min  "
+                      f"próxima {item.next_run_at:%Y-%m-%d %H:%M}  último={item.last_status or '-'}  {item.name}")
+
+
+def cmd_worker(args) -> None:
+    from scanning import worker
+
+    factory, cipher = get_session_factory(), FernetKeyring.from_env()
+    settings = ScanSettings.from_env(max_workers=args.workers)
+    if args.once:
+        report = worker.run_once(factory, cipher, settings=settings)
+        print(f"recuperados={report.recovered} encolados={report.queued} omitidos={report.skipped_active} "
+              f"errores={report.schedule_errors} ejecutados={len(report.executed)}")
+        return
+    try:
+        worker.run_forever(factory, cipher, poll_seconds=args.poll, settings=settings)
+    except KeyboardInterrupt:
+        print("Worker detenido")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Administración de Huawei Cloud Inventory")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -191,6 +229,30 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("client")
     show.add_argument("target_id", metavar="scan_id")
     scan.set_defaults(func=cmd_scan)
+
+    schedule = sub.add_parser("schedule")
+    schedule_sub = schedule.add_subparsers(dest="action", required=True)
+    create = schedule_sub.add_parser("create")
+    create.add_argument("client")
+    create.add_argument("account_id")
+    create.add_argument("--every", type=int, required=True, help="minutos entre escaneos (15 – 10080)")
+    create.add_argument("--name")
+    create.add_argument("--service", action="append")
+    create.add_argument("--region", action="append")
+    listing = schedule_sub.add_parser("list")
+    listing.add_argument("client")
+    listing.add_argument("account_id")
+    disable = schedule_sub.add_parser("disable")
+    disable.add_argument("client")
+    disable.add_argument("account_id")
+    disable.add_argument("schedule_id")
+    schedule.set_defaults(func=cmd_schedule)
+
+    worker = sub.add_parser("worker", help="procesa programaciones y escaneos en cola (proceso aparte)")
+    worker.add_argument("--once", action="store_true", help="un solo ciclo y termina")
+    worker.add_argument("--poll", type=int, default=30, help="segundos entre ciclos")
+    worker.add_argument("--workers", type=int, help="tareas simultáneas por escaneo")
+    worker.set_defaults(func=cmd_worker)
     return parser
 
 

@@ -13,6 +13,7 @@ FastAPI en este mismo proceso (sin Celery/ARQ/scheduler).
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import List, Optional
 
@@ -32,6 +33,16 @@ from tenancy.schemas import ScanIn, ScanRunOut, ScanRunSummary
 
 router = APIRouter(tags=["scans"])
 
+ENV_SCAN_EXECUTOR = "INVENTORY_SCAN_EXECUTOR"
+
+
+def scan_executor() -> str:
+    """``inline`` (por defecto): BackgroundTasks del propio servidor web.
+    ``worker``: la API solo encola; ejecuta el proceso ``manage.py worker`` (recomendado en producción).
+    """
+    value = os.environ.get(ENV_SCAN_EXECUTOR, "inline").strip().lower()
+    return value if value in ("inline", "worker") else "inline"
+
 
 def _run_in_background(factory: sessionmaker, cipher: SecretCipher, run_id: uuid.UUID) -> None:
     execute_scan(factory, cipher, run_id)
@@ -47,7 +58,9 @@ def start_scan(client_id: uuid.UUID, account_id: uuid.UUID, background: Backgrou
                       services=body.services if body else None, regions=body.regions if body else None,
                       project_ids=body.project_ids if body else None, trigger="api")
     db.commit()
-    background.add_task(_run_in_background, factory, cipher, run.id)
+    if scan_executor() == "inline":
+        background.add_task(_run_in_background, factory, cipher, run.id)
+    # modo "worker": el escaneo queda en cola (pending) y lo ejecuta `manage.py worker`
     return ScanRunSummary.from_run(run)
 
 

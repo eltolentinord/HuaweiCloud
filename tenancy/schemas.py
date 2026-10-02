@@ -320,3 +320,42 @@ class AccountOverviewOut(BaseModel):
 class ClientOverviewOut(BaseModel):
     client: ClientOut
     accounts: List[AccountOverviewOut]
+
+
+# ------------------------------------------------------------- Fase 4: programaciones
+class ScheduleIn(BaseModel):
+    """Campos permitidos al crear (sin asignación masiva de columnas internas)."""
+
+    interval_minutes: int = Field(ge=15, le=10080, description="Frecuencia en minutos (15 min – 7 días)")
+    name: Optional[str] = Field(default=None, max_length=200)
+    services: Optional[List[str]] = None
+    regions: Optional[List[str]] = None
+    enabled: bool = True
+    first_run_at: Optional[datetime] = None
+
+
+class SchedulePatch(BaseModel):
+    interval_minutes: Optional[int] = Field(default=None, ge=15, le=10080)
+    name: Optional[str] = Field(default=None, max_length=200)
+    services: Optional[List[str]] = None
+    regions: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+
+
+class ScheduleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    account_id: uuid.UUID
+    name: str
+    enabled: bool
+    interval_minutes: int
+    services: Optional[List[str]]
+    regions: Optional[List[str]]
+    next_run_at: datetime
+    last_run_id: Optional[uuid.UUID]
+    last_triggered_at: Optional[datetime]
+    last_status: Optional[str]
+    last_error_safe: Optional[str]
+    created_at: datetime
+    updated_at: datetime

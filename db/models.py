@@ -219,7 +219,7 @@ SCAN_RUN_STATUSES = ("pending", "running", "completed", "completed_with_warnings
 # denied = 401 de autorización IAM / 403; unavailable = API inexistente en la región (aviso).
 SCAN_TASK_STATUSES = ("pending", "running", "succeeded", "partial", "denied", "unavailable",
                       "failed", "skipped")
-SCAN_TRIGGERS = ("manual", "api", "cli")
+SCAN_TRIGGERS = ("manual", "api", "cli", "schedule")
 ACCOUNT_SCOPE_KEY = "account"  # recursos globales (OBS): uno por cuenta
 ACTIVE_RUN_PREDICATE = "status IN ('pending', 'running')"
 
@@ -420,3 +420,43 @@ class ResourceChange(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ============================================================================
+# Fase 4 — programación de escaneos (scheduler)
+# ============================================================================
+
+MIN_SCHEDULE_MINUTES = 15
+MAX_SCHEDULE_MINUTES = 7 * 24 * 60
+
+
+class ScanSchedule(TimestampMixin, Base):
+    """Escaneo periódico de una cuenta, ejecutado por el worker (``manage.py worker``).
+
+    El worker reclama los vencidos con ``FOR UPDATE SKIP LOCKED`` (varios workers no
+    duplican ejecuciones) y avanza ``next_run_at`` ANTES de lanzar el escaneo.
+    """
+
+    __tablename__ = "scan_schedules"
+    __table_args__ = (
+        CheckConstraint(f"interval_minutes BETWEEN {MIN_SCHEDULE_MINUTES} AND {MAX_SCHEDULE_MINUTES}",
+                        name="interval_range"),
+        Index("ix_scan_schedules_due", "enabled", "next_run_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("cloud_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, default="Escaneo programado")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    services: Mapped[Optional[list]] = mapped_column(JSONType)   # None = todos los habilitados
+    regions: Mapped[Optional[list]] = mapped_column(JSONType)    # None = todas las de la cuenta
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("scan_runs.id", ondelete="SET NULL")
+    )
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[Optional[str]] = mapped_column(String(32))   # queued | skipped_active | error
+    last_error_safe: Mapped[Optional[str]] = mapped_column(Text)
