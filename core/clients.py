@@ -17,6 +17,7 @@ from huaweicloudsdkcore.http.http_config import HttpConfig
 from huaweicloudsdkcore.region.region import Region
 
 from core.credentials import HuaweiCredentials
+from core.validation import validate_endpoint_domain, validate_region_id
 from core.throttling import GLOBAL_CALL_GATE, CallGate, GuardedClient, RetryCounter, RetryPolicy
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class ClientFactory:
         gate: Optional[CallGate] = None,
     ) -> None:
         self._credentials = credentials
-        self._endpoint_domain = endpoint_domain
+        self._endpoint_domain = validate_endpoint_domain(endpoint_domain)
         self._http_config = http_config
         self._retry_policy = retry_policy or RetryPolicy()
         self._gate = gate or GLOBAL_CALL_GATE
@@ -52,6 +53,8 @@ class ClientFactory:
         try:
             return region_cls.value_of(region_id)
         except KeyError:
+            # Solo valores validados forman la URL (prevención de SSRF; ver core/validation.py).
+            region_id = validate_region_id(region_id)
             endpoint = f"https://{endpoint_prefix}.{region_id}.{self._endpoint_domain}"
             logger.info("Región %s no declarada en %s; se usa %s",
                         region_id, getattr(region_cls, "__name__", region_cls), endpoint)

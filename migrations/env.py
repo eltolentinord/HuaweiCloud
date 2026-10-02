@@ -14,7 +14,9 @@ from db.session import database_url, safe_url
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: si Alembic se usa dentro del proceso (tests, scripts),
+    # no debe silenciar los loggers de la aplicación ya creados.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

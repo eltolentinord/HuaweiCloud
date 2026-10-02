@@ -14,6 +14,7 @@ from core.clients import DEFAULT_ENDPOINT_DOMAIN, ClientFactory
 from core.credentials import CredentialProvider
 from core.errors import AUTHENTICATION, ServiceError, classify_exception, mask_project_id_ascii, notice
 from core.models import Resource
+from core.observability import METRICS
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,11 @@ def run_collector(collector: BaseCollector, ctx: CollectorContext) -> ServiceRun
         )
         if run.error.kind == "internal":
             logger.exception("Fallo interno en %s", collector.service)
+        METRICS.inc("collector_errors_total", help="Errores de collectors por categoría",
+                    service=collector.service, kind=run.error.kind)
     run.duration_ms = int((time.perf_counter() - started) * 1000)
+    METRICS.observe("collector_duration_seconds", run.duration_ms / 1000, help="Duración de collectors",
+                    service=collector.service)
     if run.error:
         run.error.duration_ms = run.duration_ms
         logger.warning("Inventario %s", run.error.to_log())

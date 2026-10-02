@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from core.credentials import HuaweiCredentials, MissingCredentialsError
 from core.crypto import SecretCipher
+from core.validation import InvalidValueError, validate_endpoint_domain, validate_region_id
 from db.models import ACCOUNT_STATUSES, DEFAULT_ENDPOINT_DOMAIN, CloudAccount
 from repositories import accounts as repo
 from tenancy.clients import get_client
@@ -31,6 +32,16 @@ SK_FIELD = "sk"
 def credential_context(account_id: uuid.UUID, field: str) -> str:
     """Contexto ligado al ciphertext: impide reutilizarlo en otra cuenta/campo."""
     return f"cloud_account:{account_id}:{field}"
+
+
+def _validated_location(endpoint_domain: Optional[str], iam_region_id: Optional[str]):
+    """Dominio de endpoint en lista blanca y región con formato válido (anti-SSRF)."""
+    try:
+        domain = validate_endpoint_domain(endpoint_domain or DEFAULT_ENDPOINT_DOMAIN)
+        region = validate_region_id(iam_region_id) if iam_region_id else None
+    except InvalidValueError as exc:
+        raise ValidationFailedError(str(exc)) from None
+    return domain, region
 
 
 def _validated_credentials(ak: str, sk: str) -> HuaweiCredentials:
@@ -72,6 +83,7 @@ def create_account(
     get_client(session, client_id)
     if not name or not name.strip():
         raise ValidationFailedError("El nombre de la cuenta es obligatorio.")
+    endpoint_domain, iam_region_id = _validated_location(endpoint_domain, iam_region_id)
     credentials = _validated_credentials(ak, sk)
     _ensure_unique_name(session, client_id, name.strip())
     account = CloudAccount(
@@ -80,8 +92,8 @@ def create_account(
         name=name.strip(),
         huawei_domain_id=huawei_domain_id or None,
         huawei_domain_name=huawei_domain_name or None,
-        endpoint_domain=endpoint_domain or DEFAULT_ENDPOINT_DOMAIN,
-        iam_region_id=iam_region_id or None,
+        endpoint_domain=endpoint_domain,
+        iam_region_id=iam_region_id,
         status="pending",
     )
     _store_credentials(account, credentials, cipher)
@@ -117,12 +129,13 @@ def update_account(session: Session, client_id: uuid.UUID, account_id: uuid.UUID
         if status not in ACCOUNT_STATUSES:
             raise ValidationFailedError(f"Estado inválido; usa uno de {', '.join(ACCOUNT_STATUSES)}.")
         account.status = status
-    for field, value in (("huawei_domain_id", huawei_domain_id), ("huawei_domain_name", huawei_domain_name),
-                         ("iam_region_id", iam_region_id)):
+    for field, value in (("huawei_domain_id", huawei_domain_id), ("huawei_domain_name", huawei_domain_name)):
         if value is not None:
             setattr(account, field, value or None)  # "" borra el valor
+    if iam_region_id is not None:
+        account.iam_region_id = _validated_location(account.endpoint_domain, iam_region_id)[1]
     if endpoint_domain is not None:
-        account.endpoint_domain = endpoint_domain or DEFAULT_ENDPOINT_DOMAIN
+        account.endpoint_domain = _validated_location(endpoint_domain, None)[0]
     session.flush()
     return account
 

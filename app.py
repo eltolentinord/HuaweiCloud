@@ -12,8 +12,6 @@ Arranque:
 
 from __future__ import annotations
 
-import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -25,22 +23,24 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 
 from core.credentials import MissingCredentialsError
+from core.observability import configure_logging
 from exports.excel import build_inventory_workbook, safe_filename_part, workbook_bytes
 from inventory import REGIONES, SERVICIOS, consultar_servicio
 from routers.admin import admin_api_enabled, install_admin_api
 from routers.common import install_safe_validation_errors, inventory_response
 from routers.costs import router as costs_router
+from routers.middleware import install_middlewares
+from routers.system import router as system_router
 
 BASE_DIR = Path(__file__).resolve().parent
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+configure_logging()  # LOG_LEVEL / LOG_FORMAT (text|json); incluye request/scan/task id
 
 app = FastAPI(title="Huawei Cloud Inventory", docs_url=None, redoc_url=None)
+install_middlewares(app)  # request ID, cabeceras de seguridad, métricas, CORS explícito, 500 seguros
 install_safe_validation_errors(app)
+app.include_router(system_router)
 app.include_router(costs_router)
 if admin_api_enabled():
     # API multi-cliente (PostgreSQL). Sin login todavía: solo para uso local.

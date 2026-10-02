@@ -23,6 +23,7 @@ from core.crypto import CryptoConfigurationError, SecretCipher, SecretDecryption
 from db.session import DatabaseNotConfiguredError, get_db
 from routers.common import install_safe_validation_errors, inventory_response
 from routers.deps import _keyring_from_env, get_cipher  # noqa: F401  (reexportados)
+from routers.security import get_principal
 from routers.inventory_api import router as inventory_api_router
 from routers.scans import router as scans_router
 from tenancy import accounts, clients, projects
@@ -170,10 +171,11 @@ def _error(status: int, message: str) -> JSONResponse:
 def install_admin_api(app: FastAPI) -> None:
     """Monta los routers y traduce errores de dominio/configuración a HTTP seguros."""
     install_safe_validation_errors(app)
-    app.include_router(router)
-    app.include_router(inventory_router)
-    app.include_router(scans_router)
-    app.include_router(inventory_api_router)
+    protected = [Depends(get_principal)]  # token o solo local (ver routers/security.py)
+    app.include_router(router, dependencies=protected)
+    app.include_router(inventory_router, dependencies=protected)
+    app.include_router(scans_router, dependencies=protected)
+    app.include_router(inventory_api_router, dependencies=protected)
 
     @app.exception_handler(TenancyError)
     async def _tenancy(request: Request, exc: TenancyError):

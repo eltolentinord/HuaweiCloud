@@ -26,6 +26,8 @@ from typing import Any, Callable
 
 from huaweicloudsdkcore.exceptions import exceptions as sdk_exceptions
 
+from core.observability import METRICS
+
 logger = logging.getLogger(__name__)
 
 THROTTLING_CODES = frozenset({"APIGW.0308"})
@@ -110,6 +112,7 @@ def call_guarded(func: Callable[..., Any], *args: Any, policy: RetryPolicy, gate
                 raise
             delay = policy.delay(attempt - 1)
             counter.increment()
+            METRICS.inc("huawei_throttle_retries_total", help="Reintentos por throttling (429/APIGW.0308)")
             logger.warning("Throttling de Huawei Cloud en %s (intento %d/%d); reintento en %.1fs",
                            label, attempt, policy.max_attempts, delay)
             policy.sleep(delay)  # fuera del gate: no ocupa un hueco mientras espera

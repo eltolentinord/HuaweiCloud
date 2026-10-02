@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,12 +16,13 @@ from core.clients import ClientFactory
 from core.crypto import SecretCipher
 from core.discovery import DiscoveredProject, IamProjectSource, ProjectSource, resolve_regions, sdk_region_ids
 from core.errors import ServiceError, classify_exception
+from core.validation import InvalidValueError, validate_region_id
 from db.models import CloudAccount, Project
 from repositories import catalog as catalog_repo
 from repositories import projects as repo
 from tenancy.accounts import decrypt_credentials, get_account
 from tenancy.catalog_sync import ensure_region
-from tenancy.errors import NotFoundError
+from tenancy.errors import NotFoundError, ValidationFailedError
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +163,12 @@ def add_project(session: Session, client_id: uuid.UUID, account_id: uuid.UUID, *
                 huawei_project_id: str, region_id: str, name: Optional[str] = None) -> Project:
     """Alta manual (sin IAM) para cuentas cuyo usuario no puede listar proyectos."""
     account = get_account(session, client_id, account_id)
+    try:
+        region_id = validate_region_id(region_id)
+    except InvalidValueError as exc:
+        raise ValidationFailedError(str(exc)) from None
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", huawei_project_id or ""):
+        raise ValidationFailedError("Project ID con formato inválido.")
     existing = repo.get_by_huawei_id(session, account.id, huawei_project_id)
     if existing is not None:
         return existing

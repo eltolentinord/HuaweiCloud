@@ -24,6 +24,7 @@ Garantías:
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 import uuid
@@ -41,6 +42,8 @@ from core.clients import ClientFactory
 from core.crypto import SecretCipher
 from core.engine import ServiceRun, run_collector
 from core.errors import AUTHENTICATION, DENIED_KINDS, UNAVAILABLE, classify_exception, safe_message
+from core.observability import METRICS, scan_id_var, task_id_var
+from core.validation import InvalidValueError
 from db.models import CloudAccount, Project, ScanRun, ScanTask, ServiceCatalog
 from repositories import catalog as catalog_repo
 from repositories import projects as projects_repo
@@ -202,6 +205,7 @@ class TaskJob:
 
 def _collect(job: TaskJob, clients: ClientFactory) -> ServiceRun:
     """Worker: SOLO Huawei Cloud + normalización. Nunca toca la base de datos."""
+    task_id_var.set(str(job.task_id))  # el contexto del hilo es una copia: no afecta al principal
     ctx = CollectorContext(clients=clients, region=job.region, project_id=job.huawei_project_id)
     return run_collector(get_collector(job.service), ctx)
 
@@ -322,7 +326,10 @@ class _Limits:
 
 
 def _fail_run_without_credentials(session: Session, run: ScanRun, exc: Exception) -> None:
-    message = getattr(exc, "message", None) or "No se pudieron descifrar las credenciales de la cuenta."
+    if isinstance(exc, InvalidValueError):  # p. ej. endpoint_domain fuera de la lista blanca
+        message = str(exc)
+    else:
+        message = getattr(exc, "message", None) or "No se pudieron descifrar las credenciales de la cuenta."
     for task in scans_repo.tasks(session, run.id):
         task.status, task.error_kind = "skipped", "credentials"
     run.status, run.error_message_safe = "failed", safe_message(message)
@@ -335,6 +342,15 @@ def execute_scan(session_factory: sessionmaker, cipher: SecretCipher, run_id: uu
                  *, settings: Optional[ScanSettings] = None) -> uuid.UUID:
     """Ejecuta un ScanRun ``pending``. Nunca lanza por fallos de Huawei Cloud."""
     settings = settings or ScanSettings.from_env()
+    scan_token = scan_id_var.set(str(run_id))
+    try:
+        return _execute(session_factory, cipher, run_id, settings)
+    finally:
+        scan_id_var.reset(scan_token)
+
+
+def _execute(session_factory: sessionmaker, cipher: SecretCipher, run_id: uuid.UUID,
+             settings: ScanSettings) -> uuid.UUID:
     with session_factory() as session:
         run = scans_repo.get(session, run_id)
         if run is None:
@@ -387,7 +403,8 @@ def execute_scan(session_factory: sessionmaker, cipher: SecretCipher, run_id: uu
                             continue
                         task.status, task.started_at = "running", _now()
                         limits.acquire(job)
-                        running[pool.submit(_collect, job, clients)] = job
+                        # copy_context: request_id/scan_id llegan a los logs del hilo worker
+                        running[pool.submit(contextvars.copy_context().run, _collect, job, clients)] = job
                         pending.remove(task)
                     session.commit()
                 if not running:
@@ -424,17 +441,30 @@ def execute_scan(session_factory: sessionmaker, cipher: SecretCipher, run_id: uu
                         pending.clear()
                     scans_repo.heartbeat(session, run.id, now=_now())
                     session.commit()
-                    logger.info("ScanTask run=%s service=%s region=%s status=%s recursos=%d +%d ~%d -%d",
-                                run.id, task.service, task.region, task.status, task.resource_count,
-                                task.created_count, task.updated_count, task.deleted_count)
+                    METRICS.inc("scan_tasks_total", help="Tareas de escaneo por servicio y estado",
+                                service=task.service, status=task.status)
+                    METRICS.inc("resources_seen_total", task.resource_count, help="Recursos vistos",
+                                service=task.service)
+                    logger.info("ScanTask service=%s region=%s status=%s recursos=%d +%d ~%d -%d",
+                                task.service, task.region, task.status, task.resource_count,
+                                task.created_count, task.updated_count, task.deleted_count,
+                                extra={"event": "scan_task", "task_id": str(task.id), "service": task.service,
+                                       "region": task.region, "status": task.status,
+                                       "error_kind": task.error_kind, "duration_ms": task.duration_ms,
+                                       "resources": task.resource_count})
 
         session.refresh(run)
         _finalize(run, scans_repo.tasks(session, run.id), _now(),
                   {"concurrency": {**settings.as_dict(), "peak": limits.peak},
                    "throttle_retries": clients.retries.count})
         session.commit()
-        logger.info("ScanRun %s %s en %.1fs (recursos=%d errores=%d avisos=%d)", run.id, run.status,
-                    time.perf_counter() - started, run.total_resources, run.total_errors, run.total_warnings)
+        METRICS.inc("scans_total", help="Escaneos terminados por estado", status=run.status)
+        METRICS.observe("scan_duration_seconds", (run.duration_ms or 0) / 1000, help="Duración de escaneos")
+        logger.info("ScanRun %s en %.1fs (recursos=%d errores=%d avisos=%d)", run.status,
+                    time.perf_counter() - started, run.total_resources, run.total_errors, run.total_warnings,
+                    extra={"event": "scan_run", "status": run.status, "duration_ms": run.duration_ms,
+                           "resources": run.total_resources, "errors": run.total_errors,
+                           "warnings": run.total_warnings, "throttle_retries": clients.retries.count})
         return run.id
 
 
