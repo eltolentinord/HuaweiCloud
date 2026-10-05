@@ -12,7 +12,8 @@ kind               severity  Significado / señal
 authentication     error     Credenciales inválidas. Señal: HTTP 401 con código del API
                              Gateway ``APIGW.*`` (p. ej. APIGW.0301 "Incorrect IAM
                              authentication information": AK inexistente, SK o firma
-                             incorrectas). Afecta a TODOS los servicios de la cuenta.
+                             incorrectas) u OBS 403 ``InvalidAccessKeyId`` /
+                             ``SignatureDoesNotMatch``. Afecta a TODOS los servicios.
 authorization     aviso     Credenciales válidas, pero la política IAM no permite la
                              acción. Señal: 401 con código propio del servicio y/o el
                              mensaje nombra la acción IAM (p. ej. VPN.0003 "Insufficient
@@ -22,6 +23,9 @@ permission        aviso     HTTP 403 o mensajes AccessDenied/Forbidden: sin perm
                              servicio no usado/no contratado en la cuenta/región.
 unavailable       aviso     La API no existe en ese endpoint/región: 404 ``APIGW.0101``
                              ("The API does not exist or has not been published").
+site_mismatch     error     Se consultó el endpoint de otro sitio de Huawei Cloud: 403
+                             ``CBC.0156`` ("The customer does not belong to the website
+                             you are now at"). Es configuración, NO falta de permisos.
 api               error     Cualquier otro error HTTP del servicio (4xx/5xx).
 network           error     Conexión, DNS, TLS o timeout.
 pagination        error     La API devolvió páginas inconsistentes.
@@ -56,6 +60,7 @@ NETWORK = "network"
 PAGINATION = "pagination"
 INTERNAL = "internal"
 NOTICE = "notice"
+SITE_MISMATCH = "site_mismatch"
 
 WARNING_KINDS = frozenset({AUTHORIZATION, PERMISSION, UNAVAILABLE, NOTICE})
 DENIED_KINDS = frozenset({AUTHORIZATION, PERMISSION})
@@ -69,10 +74,19 @@ AUTHORIZATION_WARNING = (
     "Las credenciales son válidas."
 )
 UNAVAILABLE_WARNING = "La API del servicio no está disponible en esta región o cuenta; se omite el servicio."
+# BSS (facturación): la cuenta no pertenece al sitio cuyo endpoint se consultó.
+SITE_MISMATCH_CODE = "CBC.0156"
+SITE_MISMATCH_MESSAGE = (
+    "El endpoint de facturación (BSS) consultado no corresponde al sitio de Huawei Cloud "
+    "de esta cuenta (CBC.0156). No es un problema de permisos IAM."
+)
 AUTH_PREFIX = "Credenciales no válidas o sin permiso (401). Verifica tu AK/SK y la región. "
 _PERMISSION_HINTS = ("accessdenied", "access denied", "forbidden")
 _GATEWAY_CODE_PREFIX = "APIGW."
 _API_NOT_FOUND_CODES = frozenset({"APIGW.0101"})
+# OBS responde 403 (no 401) cuando la AK no existe o la firma no cuadra; son códigos de
+# error oficiales de OBS que significan credenciales rechazadas, no falta de permiso.
+_CREDENTIALS_REJECTED = re.compile(r"\b(InvalidAccessKeyId|SignatureDoesNotMatch)\b")
 # Acción IAM "servicio:recurso:operación" (p. ej. vpn:vpnGateways:list).
 _IAM_ACTION = re.compile(r"\b([a-z][a-z0-9]*:[A-Za-z0-9*]+:[A-Za-z0-9*]+)\b")
 _WRAPPED_HTTP_ERROR = re.compile(
@@ -81,6 +95,8 @@ _WRAPPED_HTTP_ERROR = re.compile(
 _NETWORK_EXCEPTIONS = (
     sdk_exceptions.ConnectionException,
     sdk_exceptions.RequestTimeoutException,
+    ConnectionError,   # incluye ConnectionRefused/Reset/Aborted (sockets, DNS caído…)
+    TimeoutError,
 )
 
 
@@ -144,6 +160,8 @@ class ServiceError:
             return AUTHORIZATION_WARNING.format(action=f" ({self.iam_action})" if self.iam_action else "")
         if self.kind == UNAVAILABLE:
             return UNAVAILABLE_WARNING
+        if self.kind == SITE_MISMATCH:
+            return SITE_MISMATCH_MESSAGE
         return None
 
     def to_legacy(self) -> Dict[str, Any]:
@@ -218,6 +236,10 @@ def classify_api_error(status: Optional[int], error_code: Optional[str], message
         if code.startswith(_GATEWAY_CODE_PREFIX) or (not code and not iam_action_from(message)):
             return AUTHENTICATION, ERROR  # el gateway rechazó AK/SK/firma
         return AUTHORIZATION, WARNING     # el servicio autenticó y la política IAM deniega
+    if code == SITE_MISMATCH_CODE:
+        return SITE_MISMATCH, ERROR       # endpoint de otro sitio (antes que el 403 genérico)
+    if status == 403 and _CREDENTIALS_REJECTED.search(f"{code} {message}"):
+        return AUTHENTICATION, ERROR
     if status == 403 or any(hint in lowered for hint in _PERMISSION_HINTS):
         return PERMISSION, WARNING
     if status == 404 and code in _API_NOT_FOUND_CODES:

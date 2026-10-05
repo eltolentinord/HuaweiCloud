@@ -111,3 +111,74 @@ def resolve_regions(projects: Iterable[DiscoveredProject],
         else:
             skipped.append(project)
     return resolved, skipped
+
+
+# ---------------------------------------------------------------- Enterprise Projects (EPS)
+# Comportamiento CONFIRMADO en el SDK ``huaweicloudsdkeps`` 3.1.216 (v1):
+# - ``ListEnterpriseProject``: ``GET /v1.0/enterprise-projects``; "consulta los Enterprise
+#   Projects autorizados al usuario actual". Cliente con ``GlobalCredentials``.
+# - Paginación por ``offset``/``limit`` (límite 1..1000) y ``total_count`` en la respuesta.
+# - ``EpDetail``: ``id`` ("0" = Enterprise Project por defecto), ``name``, ``description``,
+#   ``status`` (1 habilitado, 2 deshabilitado), ``type`` (prod | poc).
+# - Endpoint global ``https://eps.myhuaweicloud.com`` (región ``cn-north-4`` del SDK);
+#   ``eu-west-101`` para cuentas en ``myhuaweicloud.eu``.
+EPS_ENDPOINT_PREFIX = "eps"
+EPS_PAGE_SIZE = 1000
+
+
+@dataclass(frozen=True)
+class DiscoveredEnterpriseProject:
+    id: str
+    name: str
+    description: Optional[str] = None
+    status: Optional[int] = None
+    type: Optional[str] = None
+
+
+class EnterpriseProjectSource(Protocol):
+    def list_enterprise_projects(self) -> List[DiscoveredEnterpriseProject]:
+        ...
+
+
+def eps_region_for(endpoint_domain: Optional[str]) -> str:
+    return "eu-west-101" if (endpoint_domain or "").endswith(".eu") else "cn-north-4"
+
+
+class EpsEnterpriseProjectSource:
+    """Lista Enterprise Projects con EPS ``ListEnterpriseProject`` (solo lectura)."""
+
+    def __init__(self, clients: ClientFactory, *, endpoint_domain: Optional[str] = None,
+                 domain_id: Optional[str] = None) -> None:
+        self._clients = clients
+        self._region_id = eps_region_for(endpoint_domain)
+        self._domain_id = domain_id
+
+    def list_enterprise_projects(self) -> List[DiscoveredEnterpriseProject]:
+        from huaweicloudsdkeps.v1 import EpsClient, ListEnterpriseProjectRequest
+        from huaweicloudsdkeps.v1.region.eps_region import EpsRegion
+
+        from core.pagination import OffsetPagination, Page, paginate
+
+        client = self._clients.create_global(EpsClient, EpsRegion, EPS_ENDPOINT_PREFIX,
+                                             self._region_id, self._domain_id)
+
+        def fetch(params: dict) -> Page:
+            response = client.list_enterprise_project(ListEnterpriseProjectRequest(**params))
+            return Page(items=serialize_items(getattr(response, "enterprise_projects", None)),
+                        total=getattr(response, "total_count", None))
+
+        items = paginate(fetch, OffsetPagination(limit=EPS_PAGE_SIZE), id_key="id", label="eps.enterprise-projects")
+        return parse_enterprise_projects(items)
+
+
+def parse_enterprise_projects(items: Iterable[dict]) -> List[DiscoveredEnterpriseProject]:
+    found: Dict[str, DiscoveredEnterpriseProject] = {}
+    for item in items:
+        ep_id, name = item.get("id"), item.get("name")
+        if ep_id is None or not name:
+            continue
+        status = item.get("status")
+        found.setdefault(str(ep_id), DiscoveredEnterpriseProject(
+            id=str(ep_id), name=str(name), description=item.get("description") or None,
+            status=int(status) if isinstance(status, (int, float)) else None, type=item.get("type") or None))
+    return list(found.values())

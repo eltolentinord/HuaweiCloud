@@ -40,8 +40,7 @@ recurso aparece en "sin precio".
 
 ## Pendiente de validar con una cuenta real
 
-- Endpoint BSS para cuentas internacionales (`huaweicloudsdkbss` en `cn-north-1`, como el
-  módulo existente, frente a `huaweicloudsdkbssintl`) y permisos IAM de facturación.
+- Permisos IAM de facturación. El endpoint ya está resuelto: ver «Endpoint BSS por sitio».
 - Coincidencia entre `resource_id` facturado y `provider_id` del inventario para cada
   servicio (EVS/EIP suelen coincidir; algunos servicios facturan subrecursos).
 - Zona horaria del periodo (`cycle` en hora de China, UTC+8).
@@ -118,6 +117,24 @@ Requisitos para consultar a BSS (pendientes de confirmar con la cuenta real):
 - La cuenta necesita un **Project ID en la región cotizada** (`python manage.py account discover`
   o `project add`); sin él, el componente queda "precio no disponible" con ese motivo.
 - Permisos IAM de consulta de precios de BSS para el usuario de las AK/SK.
-- Endpoint BSS para cuentas internacionales (`huaweicloudsdkbss` en `cn-north-1` como
-  `costs.billing`, frente a `huaweicloudsdkbssintl`); si el endpoint o un código de
-  producto no es válido, la consulta falla de forma segura y se muestra el motivo.
+- Si un código de producto no es válido, la consulta falla de forma segura y se muestra
+  el motivo.
+
+## Endpoint BSS por sitio
+
+BSS (facturación, precios, costos) es global pero **cada sitio de Huawei Cloud tiene su
+endpoint**, y una cuenta solo puede consultar el de su sitio. El de otro sitio responde
+HTTP 403 `CBC.0156` («The customer does not belong to the website you are now at»), que la
+plataforma clasifica como `site_mismatch` (configuración, no permisos IAM).
+
+| Sitio | Endpoint | SDK (región) |
+|---|---|---|
+| International (por defecto) | `bss-intl.myhuaweicloud.com` | `huaweicloudsdkbssintl` (`ap-southeast-1`) |
+| Europa | `bss.myhuaweicloud.eu` | `huaweicloudsdkbssintl` (`eu-west-101`) |
+| China | `bss.myhuaweicloud.com` | `huaweicloudsdkbss` (`cn-north-1`) |
+
+Todo el uso de BSS (`services/huawei_costs.py`, `costs/billing.py`, `costs/huawei_pricing.py`)
+obtiene el cliente y los modelos de `core/bss.py` (`create_bss_client`, `bss_models`). Hoy
+todas las cuentas usan International; soportar China o Europa consiste en elegir otro sitio
+en `core.bss`, sin fijar regiones en los módulos de costos.
+

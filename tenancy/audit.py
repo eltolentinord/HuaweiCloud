@@ -11,8 +11,9 @@ claves sensibles; nunca se registran AK/SK, tokens ni cuerpos de petición.
 from __future__ import annotations
 
 import getpass
+import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func, select
@@ -35,6 +36,35 @@ def _clean(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return redact_sensitive(safe)
 
 
+_clock_lock = threading.Lock()
+_last_timestamp: Optional[datetime] = None
+_TICK = timedelta(microseconds=1)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def next_timestamp() -> datetime:
+    """Marca de tiempo ESTRICTAMENTE creciente dentro del proceso.
+
+    ``datetime.now()`` puede devolver el mismo valor en llamadas seguidas (en Windows
+    su resolución es de milisegundos) o retroceder si se ajusta el reloj. Con valores
+    repetidos el orden del registro dependería del ``id`` aleatorio. Aquí cada evento
+    recibe al menos 1 µs más que el anterior (PostgreSQL y SQLite guardan µs), de modo
+    que el orden de ``occurred_at`` es el orden real en que el proceso registró los
+    eventos. Entre procesos distintos, eventos del mismo µs son concurrentes y se
+    desempatan de forma estable por ``id``.
+    """
+    global _last_timestamp
+    with _clock_lock:
+        now = _utcnow()
+        if _last_timestamp is not None and now <= _last_timestamp:
+            now = _last_timestamp + _TICK
+        _last_timestamp = now
+        return now
+
+
 def cli_principal() -> Principal:
     try:
         user = getpass.getuser()
@@ -49,9 +79,9 @@ WORKER_PRINCIPAL = Principal(subject="worker", kind="worker", platform_role="adm
 def record(session: Session, actor: Principal, action: str, *, client_id: Optional[uuid.UUID] = None,
            account_id: Optional[uuid.UUID] = None, target: Optional[Tuple[str, Any]] = None,
            details: Optional[Dict[str, Any]] = None) -> AuditEvent:
-    # Marca de tiempo con microsegundos desde Python: now() de la base puede repetirse
-    # (SQLite guarda segundos) y el orden del registro debe ser estable.
-    event = AuditEvent(occurred_at=datetime.now(timezone.utc), actor_subject=actor.subject[:200],
+    # Marca de tiempo monótona desde Python (no now() de la base, que puede repetirse):
+    # el orden del registro es el orden de los eventos.
+    event = AuditEvent(occurred_at=next_timestamp(), actor_subject=actor.subject[:200],
                        actor_kind=actor.kind[:20], client_id=client_id, account_id=account_id, action=action[:64],
                        target_type=target[0][:32] if target else None,
                        target_id=str(target[1])[:64] if target else None,

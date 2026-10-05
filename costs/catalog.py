@@ -8,15 +8,21 @@ pública de lista: no contiene descuentos ni datos de ningún cliente.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from db.models import FlavorCatalogEntry, PriceCatalogEntry
+from db.models import (
+    BssCodeCatalogEntry,
+    FlavorCatalogEntry,
+    PriceCatalogEntry,
+    RdsFlavorCatalogEntry,
+    VolumeTypeCatalogEntry,
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,23 @@ class Flavor:
     ram_mb: int
     performance_type: Optional[str] = None
     generation: Optional[str] = None
+    # Detalle de ``os_extra_specs`` (ver costs/huawei_pricing.fetch_flavors).
+    status: Optional[str] = None
+    az_status: Optional[Dict[str, str]] = None
+    architecture: Optional[str] = None
+    cpu_name: Optional[str] = None
+    gpu_name: Optional[str] = None
+    max_bandwidth_gbps: Optional[Decimal] = None
+    max_pps: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class VolumeType:
+    """Tipo de disco EVS de la región: zonas que lo ofrecen y zonas donde está agotado."""
+
+    name: str
+    availability_zones: Tuple[str, ...] = field(default_factory=tuple)
+    sold_out_zones: Tuple[str, ...] = field(default_factory=tuple)
 
 
 class PriceCatalog:
@@ -98,6 +121,85 @@ class PriceCatalog:
         for f in unique.values():
             self.session.add(FlavorCatalogEntry(region=region, flavor_id=f.flavor_id, vcpus=f.vcpus, ram_mb=f.ram_mb,
                                                 performance_type=f.performance_type, generation=f.generation,
-                                                fetched_at=fetched_at))
+                                                status=f.status, az_status=f.az_status or None,
+                                                architecture=f.architecture, cpu_name=f.cpu_name,
+                                                gpu_name=f.gpu_name, max_bandwidth_gbps=f.max_bandwidth_gbps,
+                                                max_pps=f.max_pps, fetched_at=fetched_at))
+        self.session.flush()
+        return len(unique)
+
+    # ------------------------------------------------------------ tipos de disco
+    def volume_types(self, region: str) -> List[VolumeTypeCatalogEntry]:
+        return list(self.session.scalars(select(VolumeTypeCatalogEntry)
+                                         .where(VolumeTypeCatalogEntry.region == region)
+                                         .order_by(VolumeTypeCatalogEntry.name)))
+
+    def replace_volume_types(self, region: str, types: Iterable[VolumeType], *, fetched_at: datetime) -> int:
+        """Sustituye los tipos de disco de la región por los recién consultados."""
+        self.session.execute(delete(VolumeTypeCatalogEntry).where(VolumeTypeCatalogEntry.region == region))
+        unique = {t.name: t for t in types}
+        for t in unique.values():
+            self.session.add(VolumeTypeCatalogEntry(region=region, name=t.name,
+                                                    availability_zones=list(t.availability_zones),
+                                                    sold_out_zones=list(t.sold_out_zones), fetched_at=fetched_at))
+        self.session.flush()
+        return len(unique)
+
+
+    # ------------------------------------------------------------ RDS
+    def rds_flavors(self, region: str, engine: str, version: Optional[str] = None) -> List[RdsFlavorCatalogEntry]:
+        query = select(RdsFlavorCatalogEntry).where(RdsFlavorCatalogEntry.region == region,
+                                                    RdsFlavorCatalogEntry.engine == engine)
+        if version:
+            query = query.where(RdsFlavorCatalogEntry.engine_version == version)
+        return list(self.session.scalars(query.order_by(RdsFlavorCatalogEntry.vcpus, RdsFlavorCatalogEntry.ram_gb,
+                                                        RdsFlavorCatalogEntry.spec_code)))
+
+    def rds_versions(self, region: str, engine: str) -> List[str]:
+        rows = self.session.scalars(select(RdsFlavorCatalogEntry.engine_version).where(
+            RdsFlavorCatalogEntry.region == region, RdsFlavorCatalogEntry.engine == engine).distinct())
+        return sorted(set(rows), reverse=True)
+
+    def replace_rds_flavors(self, region: str, engine: str, version: str, flavors: Iterable[Dict],
+                            *, fetched_at: datetime) -> int:
+        self.session.execute(delete(RdsFlavorCatalogEntry).where(
+            RdsFlavorCatalogEntry.region == region, RdsFlavorCatalogEntry.engine == engine,
+            RdsFlavorCatalogEntry.engine_version == version))
+        unique = {f["spec_code"]: f for f in flavors}
+        for f in unique.values():
+            self.session.add(RdsFlavorCatalogEntry(region=region, engine=engine, engine_version=version,
+                                                   spec_code=f["spec_code"], vcpus=f["vcpus"], ram_gb=f["ram_gb"],
+                                                   instance_mode=f["instance_mode"], az_status=f.get("az_status"),
+                                                   fetched_at=fetched_at))
+        self.session.flush()
+        return len(unique)
+
+    # ------------------------------------------------------------ códigos BSS
+    def bss_codes(self, kind: Optional[str] = None, parent: Optional[str] = None) -> List[BssCodeCatalogEntry]:
+        query = select(BssCodeCatalogEntry)
+        if kind:
+            query = query.where(BssCodeCatalogEntry.kind == kind)
+        if parent:
+            query = query.where(BssCodeCatalogEntry.parent_code == parent)
+        return list(self.session.scalars(query.order_by(BssCodeCatalogEntry.code)))
+
+    def bss_code_set(self) -> Dict[str, set]:
+        out: Dict[str, set] = {"service": set(), "resource": set(), "usage": set()}
+        for row in self.session.scalars(select(BssCodeCatalogEntry)):
+            out.setdefault(row.kind, set()).add(row.code)
+        return out
+
+    def replace_bss_codes(self, codes: Iterable[Dict], *, fetched_at: datetime, kinds: Tuple[str, ...],
+                          parent: Optional[str] = None) -> int:
+        query = delete(BssCodeCatalogEntry).where(BssCodeCatalogEntry.kind.in_(kinds))
+        if parent:
+            query = query.where(BssCodeCatalogEntry.parent_code == parent)
+        self.session.execute(query)
+        unique = {(c["kind"], c["code"]): c for c in codes}
+        for c in unique.values():
+            self.session.add(BssCodeCatalogEntry(kind=c["kind"], code=str(c["code"])[:128],
+                                                 name=(str(c["name"])[:200] if c.get("name") else None),
+                                                 parent_code=(str(c["parent_code"])[:128] if c.get("parent_code") else None),
+                                                 fetched_at=fetched_at))
         self.session.flush()
         return len(unique)

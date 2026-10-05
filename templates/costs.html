@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="h-full">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,35 +10,25 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261005" />
 </head>
-<body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
-  <div class="flex min-h-screen">
-    <aside class="hidden md:flex md:w-64 flex-col bg-slate-900 text-slate-200 p-5">
-      <div class="flex items-center gap-2 mb-8">
-        <i data-lucide="cloud" class="w-6 h-6 text-blue-400"></i>
-        <h1 class="text-lg font-bold text-white leading-tight">Huawei Cloud<br />Inventory</h1>
-      </div>
-      <nav class="space-y-1 text-sm">
-        <a class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800" href="#"><i data-lucide="layout-dashboard" class="w-4 h-4"></i>Dashboard</a>
-        <a class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800" href="/"><i data-lucide="server" class="w-4 h-4"></i>Inventario ECS</a>
-        <a class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 text-white" href="/costos"><i data-lucide="wallet" class="w-4 h-4"></i>Análisis de costos</a>
-        <a class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800" href="#"><i data-lucide="settings" class="w-4 h-4"></i>Configuración</a>
-      </nav>
-      <div class="mt-auto text-xs text-slate-400 flex items-center gap-2">
-        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span> Read-only
-      </div>
-    </aside>
+<body class="h-full app-body font-sans antialiased">
+  <div class="flex h-full">
+    {% with active="costos" %}{% include "_sidebar.html" %}{% endwith %}
 
     <div class="flex-1 flex flex-col min-w-0">
-      <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 md:px-8 py-3 flex items-center gap-3">
-        <h2 class="font-semibold text-slate-900 dark:text-white mr-auto">Análisis de costos</h2>
-        <button id="btnTheme" class="text-sm inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800">
+      {% include "_mobile_nav.html" %}
+      <header class="app-header px-4 md:px-8 py-3 flex items-center gap-3">
+        <div class="mr-auto min-w-0">
+          <nav class="crumbs" aria-label="Ruta"><a href="/clientes">Inicio</a><i data-lucide="chevron-right" class="w-3 h-3"></i><span>Costos</span><i data-lucide="chevron-right" class="w-3 h-3"></i><span class="text-slate-700 dark:text-slate-300">Facturación (BSS)</span></nav>
+          <h2 class="text-base font-bold leading-tight text-slate-900 dark:text-white">Análisis de costos facturados</h2>
+        </div>
+        <button id="btnTheme" class="btn-secondary btn-sm">
           <i data-lucide="moon" class="w-4 h-4"></i><span id="themeLabel">Oscuro</span>
         </button>
       </header>
 
-      <main class="p-4 md:p-8 space-y-6">
+      <main class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
         <div id="alertBox" class="hidden rounded-xl border border-red-300 bg-red-50 dark:bg-red-950/40 dark:border-red-800 p-4 text-sm">
           <div class="flex items-start justify-between gap-4">
             <div>
@@ -50,45 +40,51 @@
           </div>
         </div>
 
-        <section class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-5 md:p-6">
+        <section class="card p-5 md:p-6">
           <h3 class="font-semibold mb-4 flex items-center gap-2"><i data-lucide="key-round" class="w-5 h-5 text-blue-500"></i>Cost Center</h3>
           <form id="formCosts" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <label class="text-sm">Access Key (AK)
-              <input id="ak" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" type="text" autocomplete="off" required />
+            <label class="field">Access Key (AK)
+              <input id="ak" class="input mt-1" type="text" autocomplete="off" required />
             </label>
-            <label class="text-sm">Secret Key (SK)
+            <label class="field">Secret Key (SK)
               <div class="mt-1 flex gap-2">
-                <input id="sk" class="w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" type="password" autocomplete="off" required />
-                <button type="button" id="btnToggleSk" class="px-3 rounded-lg border border-slate-300 dark:border-slate-700"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                <input id="sk" class="input" type="password" autocomplete="off" required />
+                <button type="button" id="btnToggleSk" class="icon-btn !h-auto shrink-0" title="Mostrar u ocultar"><i data-lucide="eye" class="w-4 h-4"></i></button>
               </div>
             </label>
-            <label class="text-sm">Mes A
-              <input id="month_a" type="month" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" required />
+            <label class="field">Mes A
+              <input id="month_a" type="month" class="input mt-1" required />
             </label>
-            <label class="text-sm">Mes B
-              <input id="month_b" type="month" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800" required />
+            <label class="field">Mes B
+              <input id="month_b" type="month" class="input mt-1" required />
             </label>
-            <label class="text-sm">Tipo de costo
-              <select id="cost_type" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800">
+            <label class="field">Tipo de costo
+              <select id="cost_type" class="input mt-1">
                 <option>ORIGINAL_COST</option>
                 <option>AMORTIZED_COST</option>
               </select>
             </label>
-            <label class="text-sm">Importe
-              <select id="amount_type" class="mt-1 w-full rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-800">
+            <label class="field">Importe
+              <select id="amount_type" class="input mt-1">
                 <option>NET_AMOUNT</option>
                 <option>PAYMENT_AMOUNT</option>
               </select>
             </label>
             <div class="flex items-end gap-3 flex-wrap">
-              <button id="btnCompare" type="submit" class="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-60">
+              <button id="btnCompare" type="submit" class="btn-primary">
                 <i data-lucide="bar-chart-3" class="w-4 h-4"></i>Comparar costos
               </button>
-              <button type="button" id="btnClear" class="inline-flex items-center gap-2 px-5 py-2 rounded-lg border border-slate-300 dark:border-slate-700">
+              <button type="button" id="btnClear" class="btn-secondary">
                 <i data-lucide="eraser" class="w-4 h-4"></i>Limpiar
               </button>
-              <button type="button" id="btnExport" class="hidden inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
+              <button type="button" id="btnExport" class="hidden btn-secondary">
                 <i data-lucide="download" class="w-4 h-4"></i>Exportar Excel
+              </button>
+              <button type="button" id="btnExportPdf" class="hidden btn-secondary">
+                <i data-lucide="file-text" class="w-4 h-4"></i>Exportar PDF
+              </button>
+              <button type="button" id="btnPrintPdf" class="hidden btn-secondary">
+                <i data-lucide="printer" class="w-4 h-4"></i>Imprimir reporte
               </button>
             </div>
             <p id="avisoPreliminares" class="hidden md:col-span-2 xl:col-span-4 text-xs text-amber-600 dark:text-amber-400">
@@ -103,41 +99,87 @@
         </section>
 
         <section id="seccionResumen" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Gasto Mes A</p><p id="sTotalA" class="text-xl font-bold">—</p></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Gasto Mes B</p><p id="sTotalB" class="text-xl font-bold">—</p></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Diferencia</p><p id="sDiff" class="text-xl font-bold">—</p></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Variación</p><p id="sPct" class="text-xl font-bold">—</p></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Región con mayor gasto</p><p id="sRegion" class="text-sm font-semibold">—</p></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Producto más costoso</p><p id="sProd" class="text-sm font-semibold">—</p></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Producto que más aumentó</p><p id="sUp" class="text-sm font-semibold text-red-600">—</p></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><p class="text-xs text-slate-500">Producto que más disminuyó</p><p id="sDown" class="text-sm font-semibold text-emerald-600">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Gasto Mes A</p><p id="sTotalA" class="text-xl font-bold">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Gasto Mes B</p><p id="sTotalB" class="text-xl font-bold">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Diferencia</p><p id="sDiff" class="text-xl font-bold">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Variación</p><p id="sPct" class="text-xl font-bold">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Región con mayor gasto</p><p id="sRegion" class="text-sm font-semibold">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Producto más costoso</p><p id="sProd" class="text-sm font-semibold">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Producto que más aumentó</p><p id="sUp" class="text-sm font-semibold text-red-600">—</p></div>
+          <div class="card p-4"><p class="text-xs text-slate-500">Producto que más disminuyó</p><p id="sDown" class="text-sm font-semibold text-emerald-600">—</p></div>
+          <div class="card p-4 col-span-2 lg:col-span-4"><p class="text-xs text-slate-500">Recurso de mayor costo (Mes B)</p><p id="sTopRes" class="text-sm font-semibold break-words">—</p></div>
+        </section>
+
+        <section id="seccionHallazgos" class="hidden grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div class="card p-5">
+            <h4 class="font-semibold mb-3 flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4 text-blue-500"></i>Hallazgos principales</h4>
+            <ul id="listaHallazgos" class="list-disc pl-5 space-y-1.5 text-sm text-slate-700 dark:text-slate-300"></ul>
+          </div>
+          <div class="card p-5">
+            <h4 class="font-semibold mb-3 flex items-center gap-2"><i data-lucide="search-check" class="w-4 h-4 text-amber-500"></i>Puntos a revisar</h4>
+            <ul id="listaRevisar" class="list-disc pl-5 space-y-1.5 text-sm text-slate-700 dark:text-slate-300"></ul>
+          </div>
         </section>
 
         <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Mes A vs Mes B por producto</h4><canvas id="chProduct"></canvas></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Gasto por región (Mes B)</h4><canvas id="chRegion"></canvas></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Distribución del gasto (Mes B)</h4><canvas id="chDonut"></canvas></div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4"><h4 class="font-semibold mb-2">Tendencia mensual</h4><canvas id="chTrend"></canvas></div>
+          <div class="card p-4"><h4 class="font-semibold mb-2">Mes A vs Mes B por producto</h4><canvas id="chProduct"></canvas></div>
+          <div class="card p-4"><h4 class="font-semibold mb-2">Gasto por región (Mes B)</h4><canvas id="chRegion"></canvas></div>
+          <div class="card p-4"><h4 class="font-semibold mb-2">Distribución del gasto (Mes B)</h4><canvas id="chDonut"></canvas></div>
+          <div class="card p-4"><h4 class="font-semibold mb-2">Tendencia mensual</h4><canvas id="chTrend"></canvas></div>
+        </section>
+
+        <section id="seccionRecursos" class="hidden space-y-6">
+          <div class="flex items-end justify-between gap-3 flex-wrap">
+            <div>
+              <h3 class="font-semibold text-lg">Recursos</h3>
+              <p id="recursosResumen" class="text-xs text-slate-500">Consumo por recurso según los registros de facturación de BSS.</p>
+            </div>
+          </div>
+          <div id="recursosAviso" class="hidden rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 p-4 text-sm text-amber-800 dark:text-amber-200"></div>
+          <div id="recursosTablas" class="space-y-6">
+            <div class="card p-4 overflow-x-auto">
+              <h4 class="font-semibold mb-2">Recursos que más consumieron (Mes B)</h4>
+              <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2 text-left">Recurso</th><th class="px-3 py-2 text-left">Servicio</th><th class="px-3 py-2 text-left">Región</th><th class="px-3 py-2 text-left">Especificación</th><th class="px-3 py-2 text-right">Mes A</th><th class="px-3 py-2 text-right">Mes B</th><th class="px-3 py-2 text-right">Diferencia</th></tr></thead><tbody id="tTopRecursos"></tbody></table>
+            </div>
+            <div class="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+              <div class="card p-4 overflow-x-auto">
+                <h4 class="font-semibold mb-2">Recursos con mayor aumento</h4>
+                <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2 text-left">Recurso</th><th class="px-3 py-2 text-left">Servicio</th><th class="px-3 py-2 text-left">Región</th><th class="px-3 py-2 text-right">Mes A</th><th class="px-3 py-2 text-right">Mes B</th><th class="px-3 py-2 text-right">Diferencia</th></tr></thead><tbody id="tRecAumentos"></tbody></table>
+              </div>
+              <div class="card p-4 overflow-x-auto">
+                <h4 class="font-semibold mb-2">Recursos con mayor reducción</h4>
+                <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2 text-left">Recurso</th><th class="px-3 py-2 text-left">Servicio</th><th class="px-3 py-2 text-left">Región</th><th class="px-3 py-2 text-right">Mes A</th><th class="px-3 py-2 text-right">Mes B</th><th class="px-3 py-2 text-right">Diferencia</th></tr></thead><tbody id="tRecReducciones"></tbody></table>
+              </div>
+              <div class="card p-4 overflow-x-auto">
+                <h4 class="font-semibold mb-2">Recursos nuevos (sin consumo en Mes A)</h4>
+                <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2 text-left">Recurso</th><th class="px-3 py-2 text-left">Servicio</th><th class="px-3 py-2 text-left">Región</th><th class="px-3 py-2 text-right">Mes B</th></tr></thead><tbody id="tRecNuevos"></tbody></table>
+              </div>
+              <div class="card p-4 overflow-x-auto">
+                <h4 class="font-semibold mb-2">Recursos sin consumo en Mes B</h4>
+                <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2 text-left">Recurso</th><th class="px-3 py-2 text-left">Servicio</th><th class="px-3 py-2 text-left">Región</th><th class="px-3 py-2 text-right">Mes A</th></tr></thead><tbody id="tRecEliminados"></tbody></table>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section id="seccionTablas" class="hidden space-y-6">
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+          <div class="card p-4 overflow-x-auto">
             <h4 class="font-semibold mb-2">Comparación por producto</h4>
             <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Mes A</th><th class="px-3 py-2">Mes B</th><th class="px-3 py-2">Diferencia</th><th class="px-3 py-2">Variación %</th></tr></thead><tbody id="tProducto"></tbody></table>
           </div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+          <div class="card p-4 overflow-x-auto">
             <h4 class="font-semibold mb-2">Comparación por región</h4>
             <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Mes A</th><th class="px-3 py-2">Mes B</th><th class="px-3 py-2">Diferencia</th><th class="px-3 py-2">Variación %</th></tr></thead><tbody id="tRegion"></tbody></table>
           </div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+          <div class="card p-4 overflow-x-auto">
             <h4 class="font-semibold mb-2">Región y producto</h4>
             <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Mes A</th><th class="px-3 py-2">Mes B</th><th class="px-3 py-2">Diferencia</th><th class="px-3 py-2">Variación %</th></tr></thead><tbody id="tRegProd"></tbody></table>
           </div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+          <div class="card p-4 overflow-x-auto">
             <h4 class="font-semibold mb-2">Servicios nuevos</h4>
             <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Costo Mes A</th><th class="px-3 py-2">Costo Mes B</th></tr></thead><tbody id="tNuevos"></tbody></table>
           </div>
-          <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-4 overflow-x-auto">
+          <div class="card p-4 overflow-x-auto">
             <h4 class="font-semibold mb-2">Servicios eliminados / sin consumo</h4>
             <table class="min-w-full text-sm"><thead class="text-xs uppercase text-slate-500"><tr><th class="px-3 py-2">Región</th><th class="px-3 py-2">Producto</th><th class="px-3 py-2">Costo Mes A</th><th class="px-3 py-2">Costo Mes B</th></tr></thead><tbody id="tEliminados"></tbody></table>
           </div>
@@ -145,6 +187,7 @@
       </main>
     </div>
   </div>
-  <script src="/static/costs.js"></script>
+  <script src="/static/costs.js?v=20261005"></script>
+  <script src="/static/shell.js?v=20261005"></script>
 </body>
 </html>

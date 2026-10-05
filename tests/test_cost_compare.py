@@ -360,7 +360,7 @@ class TestComparatorPage(unittest.TestCase):
         import re  # noqa: PLC0415
         page = self.http.get("/costos/comparar-regiones")
         self.assertEqual(page.status_code, 200)
-        self.assertIn('src="/static/costs_compare.js"', page.text)
+        self.assertIn('src="/static/costs_compare.js?v=', page.text)
         csp = page.headers["Content-Security-Policy"]
         for host in re.findall(r'(?:src|href)="(https://[^/"]+)', page.text):
             self.assertIn(host, csp)

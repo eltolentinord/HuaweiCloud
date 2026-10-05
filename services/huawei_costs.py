@@ -1,19 +1,15 @@
 # coding: utf-8
-"""Cliente solo lectura para Huawei Cloud BSS Cost Center (Cost Analysis)."""
+"""Cliente solo lectura para Huawei Cloud BSS Cost Center (Cost Analysis).
+
+El endpoint BSS es el del sitio de la cuenta (``core.bss``; International por defecto).
+"""
 
 from typing import Any, Dict, List, Optional
 
-from huaweicloudsdkcore.auth.credentials import GlobalCredentials
 from huaweicloudsdkcore.exceptions import exceptions
 
-from huaweicloudsdkbss.v2 import (
-    BssClient,
-    GroupBy,
-    ListCostsReq,
-    ListCostsRequest,
-    TimeCondition,
-)
-from huaweicloudsdkbss.v2.region.bss_region import BssRegion
+from core.bss import bss_models, create_bss_client_with_keys
+from core.errors import SITE_MISMATCH_CODE, SITE_MISMATCH_MESSAGE
 
 TAMANO_PAGINA = 500
 
@@ -66,13 +62,10 @@ def consultar_mes(
     if not mes or len(mes) != 7:
         raise CostApiError("Formato de mes inválido; usa YYYY-MM.")
 
-    credentials = GlobalCredentials(ak=ak, sk=sk)
-    client = (
-        BssClient.new_builder()
-        .with_credentials(credentials)
-        .with_region(BssRegion.value_of("cn-north-1"))
-        .build()
-    )
+    models = bss_models()
+    GroupBy, ListCostsReq = models.GroupBy, models.ListCostsReq
+    ListCostsRequest, TimeCondition = models.ListCostsRequest, models.TimeCondition
+    client = create_bss_client_with_keys(ak, sk)
 
     todos: List[Dict[str, Any]] = []
     errores: List[Dict[str, Any]] = []
@@ -98,7 +91,7 @@ def consultar_mes(
             response = client.list_costs(request)
         except exceptions.ClientRequestException as error:
             raise CostApiError(
-                error.error_msg,
+                SITE_MISMATCH_MESSAGE if error.error_code == SITE_MISMATCH_CODE else error.error_msg,
                 http_status=error.status_code,
                 request_id=error.request_id,
                 error_code=error.error_code,
@@ -127,3 +120,46 @@ def consultar_mes(
         offset += len(registros)
 
     return {"records": todos, "errors": errores}
+
+
+def consultar_recursos_mes(ak: str, sk: str, mes: str) -> List[Dict[str, Any]]:
+    """Consumo por RECURSO del mes (BSS ``ListCustomerselfResourceRecords``).
+
+    Reutiliza ``costs.billing.fetch_resource_bills`` con el BSS del sitio de la cuenta.
+    AK/SK solo en memoria; los errores salen clasificados y redactados.
+    """
+    from costs.billing import fetch_resource_bills
+    from core.errors import classify_exception
+
+    if not mes or len(mes) != 7:
+        raise CostApiError("Formato de mes inválido; usa YYYY-MM.")
+    try:
+        client = create_bss_client_with_keys(ak, sk)
+        resultado = fetch_resource_bills(None, mes, client_builder=lambda _clients: client)  # type: ignore[arg-type]
+    except Exception as exc:
+        error = classify_exception(exc, service="bss", secrets=(ak, sk))
+        mensaje = SITE_MISMATCH_MESSAGE if error.error_code == SITE_MISMATCH_CODE else error.message
+        raise CostApiError(mensaje, http_status=error.http_status, request_id=error.request_id,
+                           error_code=error.error_code)
+    moneda = resultado.get("currency") or "USD"
+    registros: List[Dict[str, Any]] = []
+    for r in resultado.get("records") or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            importe = float(r.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        registros.append({
+            "resource_id": r.get("resource_id") or "",
+            "resource_name": r.get("resource_name") or "",
+            "region": r.get("region") or "",
+            "region_name": r.get("region_name") or "",
+            "service_code": r.get("cloud_service_type") or "",
+            "service_name": r.get("cloud_service_type_name") or "",
+            "resource_type_name": r.get("resource_type_name") or "",
+            "spec": r.get("product_spec_desc") or "",
+            "amount": importe,
+            "currency": moneda,
+        })
+    return registros

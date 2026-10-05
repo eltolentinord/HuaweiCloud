@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import List
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -27,12 +27,14 @@ from core.authz import Permission, Principal
 from routers.security import get_principal, requires
 from routers.audit_api import router as audit_api_router
 from routers.cost_compare_api import router as cost_compare_api_router
+from routers.calculator_api import router as calculator_api_router
+from routers.servers_api import router as servers_api_router
 from routers.costs_api import router as costs_api_router
 from routers.exports_api import router as exports_api_router
 from routers.inventory_api import router as inventory_api_router
 from routers.schedules_api import router as schedules_api_router
 from routers.scans import router as scans_router
-from tenancy import accounts, audit, clients, projects
+from tenancy import accounts, audit, clients, iam_discovery, portfolio, projects
 from tenancy.errors import TenancyError
 from tenancy.inventory import run_account_inventory
 from tenancy.projects import DiscoveryFailedError
@@ -200,6 +202,47 @@ def discover_projects(client_id: uuid.UUID, account_id: uuid.UUID, db: Session =
                                                        projects.list_projects(db, client_id, account_id)])
 
 
+# ------------------------------------------------- IAM Discovery (Projects, Regions, Enterprise Projects)
+@router.post("/clients/{client_id}/accounts/{account_id}/iam/validate", dependencies=[Depends(requires(Permission.PROJECTS_MANAGE))])
+def validate_iam(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db),
+                 cipher: SecretCipher = Depends(get_cipher), actor: Principal = Depends(get_principal)) -> Dict[str, Any]:
+    """Conecta con Huawei Cloud: autentica la identidad IAM sin sincronizar nada."""
+    result = iam_discovery.validate_credentials(db, cipher, client_id, account_id)
+    audit.record(db, actor, "account.validate", client_id=client_id, account_id=account_id,
+                 target=("account", account_id), details={"status": result.account_status})
+    return result.as_dict()
+
+
+@router.post("/clients/{client_id}/accounts/{account_id}/iam/discover", dependencies=[Depends(requires(Permission.PROJECTS_MANAGE))])
+def discover_iam(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db),
+                 cipher: SecretCipher = Depends(get_cipher), actor: Principal = Depends(get_principal)) -> Dict[str, Any]:
+    """Descubre Projects, Regions y Enterprise Projects; un 403 en un paso no detiene el resto."""
+    try:
+        report = iam_discovery.discover(db, cipher, client_id, account_id)
+    except DiscoveryFailedError as exc:
+        audit.record(db, actor, "account.discover", client_id=client_id, account_id=account_id,
+                     target=("account", account_id), details={"status": "failed"})
+        db.commit()  # conserva el informe, el estado de la cuenta y la auditoría
+        raise HTTPException(status_code=502, detail={
+            "mensaje": exc.error.message, "categoria": exc.error.kind, "http_status": exc.error.http_status,
+            "error_code": exc.error.error_code, "request_id": exc.error.request_id,
+        })
+    body = report.as_dict()
+    audit.record(db, actor, "account.discover", client_id=client_id, account_id=account_id,
+                 target=("account", account_id),
+                 details={"status": "ok" if report.complete else "partial", "regions": report.regions,
+                          "fields": [f"{name}={step.status}:{step.count}" for name, step in report.steps.items()]})
+    return body
+
+
+# ------------------------------------------------- portafolio: mis clientes
+@inventory_router.get("")
+def list_portfolio(db: Session = Depends(get_db), principal: Principal = Depends(get_principal)) -> List[Dict[str, Any]]:
+    """Clientes visibles para quien llama, con el estado de su entorno Huawei Cloud (solo BD)."""
+    visible = principal.visible_client_ids()
+    return portfolio.portfolio(db, [c for c in clients.list_clients(db) if visible is None or str(c.id) in visible])
+
+
 # ------------------------------------------------- inventario por cuenta
 @inventory_router.post("/{client_id}/accounts/{account_id}/inventory",
                        dependencies=[Depends(requires(Permission.SCANS_RUN))])
@@ -231,6 +274,8 @@ def install_admin_api(app: FastAPI) -> None:
     app.include_router(schedules_api_router, dependencies=protected)
     app.include_router(costs_api_router, dependencies=protected)
     app.include_router(cost_compare_api_router, dependencies=protected)
+    app.include_router(calculator_api_router, dependencies=protected)
+    app.include_router(servers_api_router, dependencies=protected)
     app.include_router(audit_api_router, dependencies=protected)
 
     @app.exception_handler(TenancyError)

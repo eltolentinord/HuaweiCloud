@@ -20,3 +20,7 @@ output/
 *.key
 *.pem
 pgdata/
+
+# Artefactos locales de herramientas (grafo de código y configuración de Claude Code)
+.claude-graph/
+.claude/

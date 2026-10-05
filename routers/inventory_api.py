@@ -9,7 +9,7 @@ Todas las rutas cuelgan de ``/api/clients/{client_id}`` y filtran SIEMPRE por cl
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from repositories import scans as scans_repo
 from routers.security import requires
 from scanning.coverage import service_coverage
 from scanning.history import CATEGORIES, compare_scans
+from tenancy import iam_discovery, portfolio
 from tenancy.accounts import get_account, list_accounts
 from tenancy.clients import get_client
 from tenancy.errors import NotFoundError, ValidationFailedError
@@ -68,6 +69,48 @@ def client_overview(client_id: uuid.UUID, db: Session = Depends(get_db)):
     return ClientOverviewOut(client=ClientOut.model_validate(client), accounts=accounts)
 
 
+# ---------------------------------------------------------------- entorno Huawei del cliente
+@router.get("/accounts")
+def client_accounts(client_id: uuid.UUID, db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Cuentas Huawei del cliente: conexión, proyectos, regiones, EP, recursos, último escaneo."""
+    get_client(db, client_id)
+    return [portfolio.account_card(db, a) for a in list_accounts(db, client_id)]
+
+
+@router.get("/projects")
+def client_projects(client_id: uuid.UUID, account_id: Optional[uuid.UUID] = None,
+                    db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    return portfolio.client_projects(db, client_id, account_id)
+
+
+@router.get("/regions")
+def client_regions(client_id: uuid.UUID, account_id: Optional[uuid.UUID] = None,
+                   db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    return portfolio.client_regions(db, client_id, account_id)
+
+
+@router.get("/enterprise-projects")
+def client_enterprise_projects(client_id: uuid.UUID, account_id: Optional[uuid.UUID] = None,
+                               db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    return portfolio.client_enterprise_projects(db, client_id, account_id)
+
+
+@router.get("/accounts/{account_id}/permissions")
+def account_permissions(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Qué puede consultar la identidad IAM (descubrimiento + último escaneo de cada servicio)."""
+    return iam_discovery.account_permissions(db, get_account(db, client_id, account_id))
+
+
+@router.get("/accounts/{account_id}/resource-summary")
+def resource_summary(client_id: uuid.UUID, account_id: uuid.UUID, project_id: Optional[uuid.UUID] = None,
+                     region: Optional[str] = Query(None, max_length=64),
+                     enterprise_project_id: Optional[str] = Query(None, max_length=64),
+                     db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Recursos por servicio de un Project / Region / Enterprise Project (inventario existente)."""
+    return portfolio.resource_summary(db, client_id, account_id, project_id=project_id, region=region,
+                                      enterprise_project_id=enterprise_project_id)
+
+
 @router.get("/accounts/{account_id}/stats", response_model=AccountStatsOut)
 def account_stats(client_id: uuid.UUID, account_id: uuid.UUID, db: Session = Depends(get_db)):
     account = get_account(db, client_id, account_id)
@@ -84,6 +127,7 @@ def list_resources(
     client_id: uuid.UUID, account_id: uuid.UUID,
     service: Optional[str] = None, region: Optional[str] = None, resource_type: Optional[str] = None,
     project_id: Optional[uuid.UUID] = None, status: Optional[str] = None,
+    enterprise_project_id: Optional[str] = Query(None, max_length=64, description="Enterprise Project de Huawei"),
     search: Optional[str] = Query(None, max_length=200, description="Nombre o ID del proveedor"),
     include_deleted: bool = False, only_deleted: bool = False, include_raw: bool = False,
     sort: Optional[str] = Query(None, max_length=200, description="p. ej. -last_seen,name"),
@@ -95,7 +139,8 @@ def list_resources(
         rows, total = resources_repo.list_for_account(
             db, account.id, service=service, region=region, resource_type=resource_type,
             project_id=project_id, status=status, search=search, include_deleted=include_deleted,
-            only_deleted=only_deleted, sort=sort, limit=limit, offset=offset)
+            only_deleted=only_deleted, sort=sort, limit=limit, offset=offset,
+            enterprise_project_id=enterprise_project_id)
     except ValueError as exc:
         raise ValidationFailedError(str(exc)) from None
     return ResourcePage(total=total, limit=limit, offset=offset,

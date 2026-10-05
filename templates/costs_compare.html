@@ -8,113 +8,170 @@
   <script>tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } } };</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261005" />
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
-<body class="h-full bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-200 font-sans antialiased">
+<body class="h-full app-body font-sans antialiased">
   <div class="flex h-full">
-    <aside class="hidden lg:flex lg:flex-col w-60 shrink-0 bg-slate-900 text-slate-300">
-      <div class="flex items-center gap-3 px-5 h-16 border-b border-slate-800">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 grid place-items-center text-white shadow-lg shadow-blue-500/20">
-          <i data-lucide="cloud" class="w-5 h-5"></i>
-        </div>
-        <div>
-          <span class="font-bold text-white text-sm leading-tight block">Huawei Cloud</span>
-          <span class="text-[10px] text-slate-400 uppercase tracking-wider">Inventory</span>
-        </div>
-      </div>
-      <nav class="flex-1 px-3 py-4 space-y-0.5">
-        <a href="/dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
-          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>Dashboard
-        </a>
-        <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
-          <i data-lucide="server" class="w-4 h-4"></i>Consulta directa
-        </a>
-        <a href="/costos" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
-          <i data-lucide="wallet" class="w-4 h-4"></i>Costos (BSS)
-        </a>
-        <a href="/costos/comparar-regiones" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-slate-800 text-white">
-          <i data-lucide="arrow-left-right" class="w-4 h-4"></i>Comparar regiones
-        </a>
-      </nav>
-      <div class="p-4 border-t border-slate-800">
-        <p class="text-[10px] text-slate-500 leading-relaxed">Simulación de costos. No crea, migra ni modifica recursos en Huawei Cloud.</p>
-      </div>
-    </aside>
+    {% with active="comparar" %}{% include "_sidebar.html" %}{% endwith %}
 
     <div class="flex-1 flex flex-col min-w-0">
-      <header class="shrink-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 md:px-6 py-3">
+      {% include "_mobile_nav.html" %}
+      <!-- ============ CABECERA ============ -->
+      <header class="app-header px-4 md:px-6 py-3">
         <div class="flex flex-wrap items-center gap-3">
-          <div class="mr-auto">
-            <h1 class="text-base font-bold leading-tight">Comparador de costos por región</h1>
-            <p class="text-xs text-slate-500">Parte de un recurso real de tu inventario y simula cuánto costaría en otra región o con otra configuración.</p>
+          <div class="mr-auto min-w-0 flex-1">
+            <nav class="crumbs" aria-label="Ruta"><a href="/clientes">Inicio</a><i data-lucide="chevron-right" class="w-3 h-3"></i><span>Costos</span><i data-lucide="chevron-right" class="w-3 h-3"></i><span class="text-slate-700 dark:text-slate-300">Comparar regiones</span></nav>
+            <h1 class="text-base font-bold leading-tight text-slate-900 dark:text-white">Comparador de costos por región</h1>
           </div>
-          <button id="btnDark" title="Modo claro/oscuro" class="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"><i data-lucide="moon" class="w-4 h-4"></i></button>
+          <span class="hidden md:inline-flex badge badge-blue"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>Simulación · precios oficiales · no modifica recursos</span>
+          <button id="btnDark" title="Modo claro/oscuro" class="icon-btn"><i data-lucide="moon" class="w-4 h-4"></i></button>
         </div>
       </header>
 
       <main class="flex-1 overflow-y-auto">
-        <div class="max-w-7xl mx-auto p-4 md:p-6 space-y-5">
+        <div class="max-w-6xl mx-auto p-4 md:p-6 space-y-5">
           <div id="alerts" class="space-y-3"></div>
 
-          <div class="rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/20 px-4 py-3 text-sm text-blue-900 dark:text-blue-200 flex gap-3">
-            <i data-lucide="shield-check" class="w-5 h-5 shrink-0 mt-0.5"></i>
-            <p>Es solo una simulación: los recursos reales y el inventario no se modifican. Los precios provienen únicamente de fuentes oficiales
-              (consulta a Huawei Cloud BSS o tu tabla oficial). Si un precio no existe, se muestra <b>«precio no disponible»</b>; nunca se inventa.</p>
-          </div>
-
-          <!-- ============ 1. ORIGEN ============ -->
-          <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-            <div class="flex items-center gap-2 mb-4"><span class="step">1</span><h2 class="font-bold">Origen: un recurso real de tu inventario</h2></div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+          <!-- ============ CLIENTE / CUENTA + MODO ============ -->
+          <section class="card px-4 md:px-5 pt-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
               <label class="field">Cliente<select id="clientSelect" class="input"></select></label>
-              <label class="field">Cuenta de origen<select id="accountSelect" class="input"></select></label>
-              <label class="field">Inventario de origen<select id="scanSelect" class="input"></select></label>
-              <label class="field">Región de origen<select id="originRegion" class="input"></select></label>
-              <label class="field">Recurso<select id="resourceSelect" class="input"></select></label>
+              <label class="field">Cuenta<select id="accountSelect" class="input"></select></label>
             </div>
-            <div class="mt-3 flex flex-wrap items-center gap-3">
-              <button id="btnAdd" class="btn-primary"><i data-lucide="plus" class="w-4 h-4"></i>Agregar recurso</button>
-              <span id="resourceHint" class="text-xs text-slate-500"></span>
-            </div>
+            <nav class="mt-3 -mb-px flex gap-1 overflow-x-auto" role="tablist" aria-label="Modo del comparador">
+              <button type="button" class="tab tab-active" role="tab" data-cc-tab="recurso" aria-selected="true"><i data-lucide="server" class="w-4 h-4"></i>Desde un recurso</button>
+              <button type="button" class="tab" role="tab" data-cc-tab="libre" aria-selected="false"><i data-lucide="sliders-horizontal" class="w-4 h-4"></i>Configuración libre</button>
+              <button type="button" class="tab" role="tab" data-cc-tab="catalogo" aria-selected="false"><i data-lucide="library" class="w-4 h-4"></i>Catálogo por región</button>
+            </nav>
           </section>
 
-          <!-- ============ 2. DESTINO Y MODO DE COBRO ============ -->
-          <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-            <div class="flex items-center gap-2 mb-4"><span class="step">2</span><h2 class="font-bold">Destino y forma de pago</h2></div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-              <label class="field">Región destino (para todos)<select id="destRegion" class="input"></select></label>
-              <label class="field">Modelo de cobro<select id="billingMode" class="input"></select></label>
-              <label class="field" id="hoursField">Horas de uso al mes<input id="hours" type="number" min="1" max="744" class="input" /></label>
-              <div class="field">Precios oficiales de la región destino
-                <div class="flex gap-2 mt-1">
-                  <button id="btnRefreshPrices" class="btn-secondary" title="Consulta a Huawei Cloud BSS los precios de lista de los componentes mostrados">
-                    <i data-lucide="download-cloud" class="w-4 h-4"></i>Consultar precios</button>
-                  <button id="btnRefreshFlavors" class="btn-secondary" title="Consulta a Huawei Cloud los flavors ECS disponibles en la región destino">
-                    <i data-lucide="list" class="w-4 h-4"></i>Flavors</button>
+          <div id="paneRecurso" class="space-y-5" data-cc-pane="recurso">
+          <!-- ============ SELECCIÓN DEL RECURSO DE ORIGEN ============ -->
+          <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 md:p-5">
+            <div class="grid grid-cols-[minmax(0,1fr)] sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-3">
+              <label class="field">Región de origen<select id="originRegion" class="input"></select></label>
+              <div class="field">Recurso de origen
+                <div class="flex gap-2">
+                  <select id="resourceSelect" class="input flex-1 min-w-0"></select>
+                  <button id="btnAdd" title="Agregar otro recurso a la misma comparación" class="btn-secondary shrink-0"><i data-lucide="plus" class="w-4 h-4"></i><span class="hidden sm:inline">Agregar</span></button>
                 </div>
               </div>
             </div>
-            <p id="destInfo" class="mt-3 text-xs text-slate-500"></p>
+            <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+              <span id="scanInfo"></span>
+              <span id="resourceHint"></span>
+            </div>
           </section>
 
-          <!-- ============ 3. RECURSOS A COMPARAR ============ -->
-          <section class="space-y-4">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="step">3</span><h2 class="font-bold mr-auto">Configuración y resultado</h2>
-              <button id="btnCompare" class="btn-primary"><i data-lucide="scale" class="w-4 h-4"></i>Comparar</button>
-              <button id="btnExportXlsx" class="btn-secondary"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Exportar comparación (Excel)</button>
-              <button id="btnExportCsv" class="btn-secondary"><i data-lucide="file-text" class="w-4 h-4"></i>CSV</button>
+          <!-- ============ ORIGEN  VS  DESTINO ============ -->
+          <div id="items" class="space-y-6"></div>
+
+          <!-- ============ ACCIÓN ============ -->
+          <section id="actionBar" class="hidden bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 flex flex-wrap items-end gap-3">
+            <label class="field">Modelo de cobro<select id="billingMode" class="input"></select></label>
+            <label class="field" id="hoursField">Horas de uso al mes<input id="hours" type="number" min="1" max="744" class="input w-28" /></label>
+            <div class="flex flex-wrap gap-2 ml-auto">
+              <button id="btnRefreshPrices" class="btn-secondary" title="Consulta a Huawei Cloud BSS los precios oficiales de lista de los componentes mostrados (requiere rol operador)">
+                <i data-lucide="download-cloud" class="w-4 h-4"></i>Consultar precios oficiales</button>
+              <button id="btnCompare" class="btn-primary text-base px-6"><i data-lucide="scale" class="w-5 h-5"></i>Comparar costos</button>
             </div>
-            <div id="summary"></div>
-            <div id="items" class="space-y-4"></div>
           </section>
+
+          <!-- ============ RESULTADO ============ -->
+          <section id="result"></section>
+
+          <!-- ============ DETALLE ============ -->
+          <section id="details" class="space-y-5"></section>
+          </div>
+
+          <!-- ============ CONFIGURACIÓN LIBRE ============ -->
+          <div id="paneLibre" class="hidden space-y-5" data-cc-pane="libre">
+            <section class="card p-4 md:p-5 space-y-4">
+              <div>
+                <h2 class="card-title">Configura un servidor</h2>
+                <p class="card-sub">No tiene que existir en tu cuenta. El precio sale de las tarifas oficiales de Huawei y la disponibilidad del catálogo de cada región.</p>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.5fr)_minmax(0,1fr)] gap-3">
+                <label class="field">Flavor
+                  <input id="freeFlavor" class="input font-mono" list="freeFlavorList" placeholder="p. ej. x1.4u.8g" autocomplete="off" spellcheck="false" />
+                  <datalist id="freeFlavorList"></datalist>
+                </label>
+                <label class="field">Sistema operativo<select id="freeOs" class="input"><option value="linux">Linux</option><option value="windows">Windows</option></select></label>
+                <label class="field">Disco de sistema
+                  <div class="flex gap-2"><select id="freeSysType" class="input flex-1 min-w-0"></select><input id="freeSysSize" type="number" min="10" max="32768" value="40" class="input w-24" aria-label="Tamaño del disco de sistema (GB)" /></div>
+                </label>
+                <p id="freeFlavorInfo" class="text-xs text-slate-500 self-end pb-2"></p>
+              </div>
+              <div>
+                <div class="flex items-center justify-between gap-2"><span class="field !mb-0">Discos de datos</span>
+                  <button type="button" id="freeAddDisk" class="btn-ghost btn-sm"><i data-lucide="plus" class="w-4 h-4"></i>Agregar disco</button></div>
+                <div id="freeDisks" class="mt-2 space-y-2"></div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-[auto_1fr_1fr_1fr] gap-3 items-end">
+                <label class="flex items-center gap-2 text-sm font-medium pb-2"><input id="freeEip" type="checkbox" class="rounded" />IP pública (EIP)</label>
+                <label class="field">Tipo de EIP<input id="freeEipType" class="input font-mono" value="5_bgp" disabled /></label>
+                <label class="field">Ancho de banda (Mbps)<input id="freeEipMbps" type="number" min="1" max="2000" value="5" class="input" disabled /></label>
+                <label class="field">Cobro del ancho de banda<select id="freeEipMode" class="input" disabled><option value="bandwidth">Por ancho de banda</option><option value="traffic">Por tráfico</option></select></label>
+              </div>
+              <div>
+                <span class="field !mb-0">Regiones a comparar <span class="text-slate-400 font-normal">(máx. 6; la primera es la referencia)</span></span>
+                <div id="freeRegions" class="mt-2 flex flex-wrap gap-2"></div>
+              </div>
+              <div class="flex flex-wrap items-end gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">
+                <label class="field">Modelo de cobro<select id="freeBilling" class="input"><option value="monthly">Suscripción mensual</option><option value="on_demand">Pago por uso (por hora)</option></select></label>
+                <label class="field" id="freeHoursField">Horas de uso al mes<input id="freeHours" type="number" min="1" max="744" value="730" class="input w-28" /></label>
+                <div class="flex flex-wrap gap-2 ml-auto">
+                  <button type="button" id="freeRefreshPrices" class="btn-secondary" title="Consulta a Huawei Cloud BSS los precios oficiales de lista (requiere rol operador)"><i data-lucide="download-cloud" class="w-4 h-4"></i>Consultar precios oficiales</button>
+                  <button type="button" id="freeCompare" class="btn-primary"><i data-lucide="scale" class="w-4 h-4"></i>Comparar regiones</button>
+                </div>
+              </div>
+            </section>
+            <section id="freeResult" class="space-y-4"></section>
+          </div>
+
+          <!-- ============ CATÁLOGO POR REGIÓN ============ -->
+          <div id="paneCatalogo" class="hidden space-y-5" data-cc-pane="catalogo">
+            <section class="card p-4 md:p-5 space-y-3">
+              <div class="flex flex-wrap items-end gap-3">
+                <label class="field min-w-[14rem]">Región<select id="catRegion" class="input"></select></label>
+                <button type="button" id="catRefresh" class="btn-secondary" title="Consulta a Huawei Cloud los flavors (ECS) y tipos de disco (EVS) de la región (requiere rol operador)"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar desde Huawei</button>
+                <p id="catMeta" class="text-xs text-slate-500 ml-auto"></p>
+              </div>
+              <div id="catNotice"></div>
+            </section>
+            <section class="card p-4 md:p-5">
+              <div class="flex flex-wrap items-end gap-3 mb-3">
+                <h2 class="card-title mr-auto">Flavors <span id="catFlavorCount" class="tab-count"></span></h2>
+                <label class="field">Buscar<input id="catSearch" class="input w-48" placeholder="Nombre, CPU…" /></label>
+                <label class="field">Familia<select id="catFamily" class="input"></select></label>
+                <label class="field">vCPU<select id="catVcpu" class="input"></select></label>
+                <label class="field">Estado<select id="catStatus" class="input"><option value="">Todos</option><option value="disponible">Disponibles</option><option value="no">Agotados / beta</option></select></label>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="table-pro min-w-full text-sm">
+                  <thead><tr><th class="text-left">Flavor</th><th class="text-right">vCPU</th><th class="text-right">RAM</th><th class="text-left">Familia</th><th class="text-left hidden lg:table-cell">CPU / GPU</th><th class="text-right hidden md:table-cell">Red</th><th class="text-left">Estado</th><th class="text-left hidden xl:table-cell">Zonas</th><th></th></tr></thead>
+                  <tbody id="catFlavors"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="card p-4 md:p-5">
+              <h2 class="card-title mb-3">Tipos de disco <span id="catDiskCount" class="tab-count"></span></h2>
+              <div class="overflow-x-auto">
+                <table class="table-pro min-w-full text-sm">
+                  <thead><tr><th class="text-left">Tipo</th><th class="text-left">Código</th><th class="text-left">Zonas disponibles</th><th class="text-left">Agotado en</th></tr></thead>
+                  <tbody id="catDisks"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         </div>
       </main>
     </div>
   </div>
 
-  <datalist id="flavorList"></datalist>
-  <script src="/static/costs_compare.js"></script>
+  <script src="/static/costs_compare.js?v=20261005b"></script>
+  <script src="/static/region_catalog.js?v=20261005b"></script>
+  <script src="/static/shell.js?v=20261005"></script>
 </body>
 </html>

@@ -45,6 +45,15 @@ class TestClassification(unittest.TestCase):
         self.assertEqual(legacy["mensaje_seguro"], PERMISSION_WARNING)
         self.assertEqual(legacy["http_status"], "403")
 
+    def test_obs_rejected_credentials_are_authentication_not_permission(self):
+        # Respuesta real de OBS con una AK desactivada: 403 + código InvalidAccessKeyId en el mensaje.
+        for message in ("InvalidAccessKeyId The OBS Access Key Id you provided does not exist in our records.",
+                        "SignatureDoesNotMatch The request signature we calculated does not match"):
+            with self.subTest(message=message):
+                err = classify_exception(api_error(403, message, code="403"), service="obs")
+                self.assertEqual((err.kind, err.severity), ("authentication", "error"))
+        self.assertEqual(classify_exception(api_error(403, "AccessDenied", code="403"), service="obs").kind, "permission")
+
     def test_access_denied_text_is_warning(self):
         err = classify_exception(api_error(400, "AccessDenied: no permission"), service="obs")
         self.assertEqual(err.severity, "aviso")
@@ -56,6 +65,13 @@ class TestClassification(unittest.TestCase):
     def test_network_error(self):
         err = classify_exception(sdk_exceptions.ConnectionException("timeout to host"), service="ecs")
         self.assertEqual(err.kind, "network")
+
+    def test_builtin_connection_errors_are_network_not_internal(self):
+        for exc in (ConnectionError("timeout"), ConnectionResetError("reset"), TimeoutError()):
+            with self.subTest(exc=type(exc).__name__):
+                err = classify_exception(exc, service="iam", secrets=(FAKE_AK,))
+                self.assertEqual(err.kind, "network")
+                self.assertTrue(err.message.startswith("Error de conexión"))
 
     def test_pagination_error(self):
         self.assertEqual(classify_exception(PaginationError("loop"), service="ecs").kind, "pagination")

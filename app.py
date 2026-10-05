@@ -86,6 +86,18 @@ def dashboard(request: Request):
     return templates.TemplateResponse(request, "dashboard.html", {})
 
 
+@app.get("/servidores")
+def servidores(request: Request):
+    """Auditoría de servidores Linux por SSH (usa la API interna: INVENTORY_ADMIN_API=true)."""
+    return templates.TemplateResponse(request, "servers.html", {})
+
+
+@app.get("/clientes")
+def clientes(request: Request):
+    """Mis clientes (tenants) y su entorno Huawei Cloud (usa la API interna: INVENTORY_ADMIN_API=true)."""
+    return templates.TemplateResponse(request, "clients.html", {})
+
+
 @app.post("/api/inventory")
 def inventory(payload: ConsultaRequest):
     servicio = payload.service.strip().lower()

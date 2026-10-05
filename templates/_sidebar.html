@@ -1,0 +1,40 @@
+{#- Barra lateral común de toda la aplicación (escritorio fija; móvil/tablet como panel).
+    Uso: {% with active="dashboard" %}{% include "_sidebar.html" %}{% endwith %}
+    active: clientes | dashboard | servidores | calculadora | comparar | costos | consulta -#}
+{%- macro item(href, icon, label, key) -%}
+<a href="{{ href }}" class="nav-link{% if active == key %} nav-active{% endif %}"{% if active == key %} aria-current="page"{% endif %}><i data-lucide="{{ icon }}" class="w-4 h-4"></i><span>{{ label }}</span></a>
+{%- endmacro %}
+<aside id="sidebar" class="sidebar" aria-label="Navegación principal">
+  <a href="/clientes" class="sidebar-brand">
+    <span class="brand-mark"><i data-lucide="cloud" class="w-5 h-5"></i></span>
+    <span class="min-w-0">
+      <span class="block text-sm font-bold leading-tight text-slate-900 dark:text-white">Huawei Cloud</span>
+      <span class="block text-[11px] text-slate-500">Inventory Platform</span>
+    </span>
+  </a>
+  <nav class="flex-1 overflow-y-auto py-2" aria-label="Principal">
+    <p class="nav-group">General</p>
+    {{ item("/clientes", "home", "Inicio", "clientes") }}
+    {% if active == "clientes" %}
+    <div id="clientNav" class="hidden py-1 space-y-0.5">
+      <a href="#resumen" data-tab-link="resumen" class="nav-sub">Resumen</a>
+      <a href="#cuenta" data-tab-link="cuenta" class="nav-sub">Cuenta e IAM</a>
+      <a href="#estructura" data-tab-link="estructura" class="nav-sub">Estructura y recursos</a>
+      <a href="#permisos" data-tab-link="permisos" class="nav-sub">Permisos</a>
+    </div>
+    {% endif %}
+    {{ item("/dashboard", "layout-dashboard", "Inventario", "dashboard") }}
+    <a href="/dashboard#historial" class="nav-link"><i data-lucide="history" class="w-4 h-4"></i><span>Historial</span></a>
+    <p class="nav-group">Costos</p>
+    {{ item("/costos/calculadora", "calculator", "Calculadora de precios", "calculadora") }}
+    {{ item("/costos/comparar-regiones", "arrow-left-right", "Comparar regiones", "comparar") }}
+    {{ item("/costos", "wallet", "Facturación (BSS)", "costos") }}
+    <p class="nav-group">Herramientas</p>
+    {{ item("/servidores", "server-cog", "Auditoría de servidores", "servidores") }}
+    {{ item("/", "terminal-square", "Consulta directa", "consulta") }}
+  </nav>
+  <div class="sidebar-foot">
+    <span class="badge badge-green"><i data-lucide="shield-check" class="w-3 h-3"></i>Solo lectura</span>
+    <p class="mt-2 leading-relaxed">No crea ni modifica recursos en Huawei Cloud. Cada cliente ve únicamente sus datos.</p>
+  </div>
+</aside>

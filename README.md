@@ -258,6 +258,39 @@ El worker usa PostgreSQL como cola (`FOR UPDATE SKIP LOCKED` + claim atómico): 
 workers no duplican trabajo y un reinicio no pierde escaneos pendientes. Con
 `INVENTORY_SCAN_EXECUTOR=worker` la API solo encola y el worker ejecuta.
 
+### Clientes e IAM Discovery (multi-tenant)
+
+Jerarquía: **cliente/tenant** (de esta plataforma) → **cuenta Huawei Cloud** (AK/SK
+cifradas de una identidad IAM) → **Projects** (cada uno en una **Region**) y
+**Enterprise Projects** → recursos (inventario existente). Un cliente puede tener varias
+cuentas; un cliente nunca ve datos de otro.
+
+`/clientes`: tarjetas por cliente (conexión, Projects, Regions, recursos, último
+escaneo) y, dentro de cada uno, cuentas, árbol Projects / Enterprise Projects / Regions,
+recursos por selección y permisos efectivos de la identidad IAM. Flujo:
+
+1. Crear cliente → agregar cuenta Huawei (AK/SK se cifran en el servidor y no se muestran).
+2. **Conectar Huawei Cloud** (`POST /api/admin/clients/{c}/accounts/{a}/iam/validate`):
+   autentica sin sincronizar nada.
+3. **Descubrir** (`POST …/iam/discover`): Projects (IAM `KeystoneListAuthProjects`) →
+   Regions → Enterprise Projects (EPS `ListEnterpriseProject`). Un 403 se muestra como
+   "Permiso insuficiente" y el resto continúa; solo AK/SK inválidas detienen el proceso.
+4. **Escanear** con el motor existente (colectores sin cambios).
+
+Lectura (`/api/clients/{c}/…`): `accounts`, `projects`, `regions`, `enterprise-projects`,
+`accounts/{a}/permissions` (por servicio: lectura / permiso denegado / parcial / sin
+comprobar, según el último escaneo de cada servicio) y `accounts/{a}/resource-summary`
+(`project_id`, `region` o `enterprise_project_id`). `GET /api/clients` = portafolio de los
+clientes visibles para quien llama. CLI:
+
+```powershell
+python manage.py account validate miempresa <ACCOUNT_ID>
+python manage.py account iam-discover miempresa <ACCOUNT_ID>
+```
+
+Solo lectura sobre Huawei Cloud: no hay operaciones sobre recursos (ver `docs/AUTH.md`).
+Requiere la migración `0009` (`alembic upgrade head`) y `huaweicloudsdkeps`.
+
 ### Comparador de costos por región
 
 `/costos/comparar-regiones` (también desde la ficha de un recurso del dashboard): toma

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from core.authz import Permission
 from core.clients import ClientFactory
 from core.crypto import SecretCipher
-from core.errors import classify_exception
+from core.errors import SITE_MISMATCH, classify_exception
 from costs import billing, pricing
 from costs.report import CostReport
 from db.session import get_db
@@ -104,7 +104,8 @@ def _actual(db: Session, cipher: SecretCipher, client_id: uuid.UUID, account_id:
     except Exception as exc:  # clasificado y redactado: nunca AK/SK ni detalles internos
         error = classify_exception(exc, service="bss", secrets=credentials.secrets)
         raise HTTPException(status_code=502, detail={
-            "mensaje": error.message, "categoria": error.kind, "http_status": error.http_status,
+            "mensaje": error.safe_explanation if error.kind == SITE_MISMATCH else error.message,
+            "categoria": error.kind, "http_status": error.http_status,
             "error_code": error.error_code, "request_id": error.request_id, "accion_iam": error.iam_action})
     return account, billing.build_actual_report(month, bills, resources, projects)
 

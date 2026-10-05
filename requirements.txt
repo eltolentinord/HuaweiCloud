@@ -6,6 +6,8 @@ pydantic==2.13.5
 
 # Excel
 openpyxl==3.1.5
+reportlab==5.0.1
+paramiko==5.0.0
 
 # Base de datos (Fase 2)
 sqlalchemy==2.1.1
@@ -33,4 +35,6 @@ huaweicloudsdkhss==3.1.216
 huaweicloudsdkwaf==3.1.216
 huaweicloudsdkcfw==3.1.216
 huaweicloudsdkbss==3.1.216
+huaweicloudsdkbssintl==3.1.216
 huaweicloudsdkiam==3.1.216
+huaweicloudsdkeps==3.1.216

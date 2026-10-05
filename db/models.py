@@ -14,7 +14,7 @@ junto con la versión de la clave maestra usada (``key_version``).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import (
@@ -45,6 +45,10 @@ ACCOUNT_STATUSES = ("pending", "active", "invalid", "disabled")
 ROLES = ("viewer", "operator", "admin")
 SERVICE_SCOPES = ("regional", "global")
 DEFAULT_ENDPOINT_DOMAIN = "myhuaweicloud.com"
+
+
+# JSONB en PostgreSQL; JSON genérico en SQLite (tests).
+JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 
 def _in(column: str, values: tuple) -> str:
@@ -158,6 +162,10 @@ class CloudAccount(TimestampMixin, Base):
                                         server_default="pending")
     last_validated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_validation_error: Mapped[Optional[str]] = mapped_column(Text)
+    # Último descubrimiento IAM: qué se encontró y qué no permitió la identidad IAM
+    # (p. ej. "Permiso insuficiente" en Enterprise Projects). Sin secretos.
+    last_discovery_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    discovery_report: Mapped[Optional[dict]] = mapped_column(JSONType)
 
     client: Mapped[Client] = relationship(back_populates="accounts")
     projects: Mapped[List["Project"]] = relationship(
@@ -223,9 +231,6 @@ SCAN_TASK_STATUSES = ("pending", "running", "succeeded", "partial", "denied", "u
 SCAN_TRIGGERS = ("manual", "api", "cli", "schedule")
 ACCOUNT_SCOPE_KEY = "account"  # recursos globales (OBS): uno por cuenta
 ACTIVE_RUN_PREDICATE = "status IN ('pending', 'running')"
-
-# JSONB en PostgreSQL; JSON genérico en SQLite (tests).
-JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 
 class ScanRun(Base):
@@ -496,9 +501,10 @@ class AuditEvent(Base):
 
 
 # ---------------------------------------------------------------- Comparador de costos por región
-PRICE_PRODUCTS = ("ecs", "evs", "ip", "bandwidth")
-BILLING_MODES = ("on_demand", "monthly")
-PRICE_PERIODS = ("hour", "month")
+# Migración 0011 (calculadora): traffic = ancho de banda por tráfico (GB), rds/rds_storage, obs_storage.
+PRICE_PRODUCTS = ("ecs", "evs", "ip", "bandwidth", "traffic", "rds", "rds_storage", "obs_storage")
+BILLING_MODES = ("on_demand", "monthly", "yearly")
+PRICE_PERIODS = ("hour", "month", "year", "gb")
 PRICE_SOURCES = ("huawei_bss",)
 
 
@@ -550,3 +556,150 @@ class FlavorCatalogEntry(Base):
     performance_type: Mapped[Optional[str]] = mapped_column(String(64))
     generation: Mapped[Optional[str]] = mapped_column(String(32))
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Detalle oficial (migración 0010; NULL en filas consultadas antes de ella).
+    status: Mapped[Optional[str]] = mapped_column(String(16))          # cond:operation:status
+    az_status: Mapped[Optional[dict]] = mapped_column(JSONType)       # cond:operation:az -> {az: estado}
+    architecture: Mapped[Optional[str]] = mapped_column(String(16))    # ecs:instance_architecture (arm64)
+    cpu_name: Mapped[Optional[str]] = mapped_column(String(128))       # info:cpu:name
+    gpu_name: Mapped[Optional[str]] = mapped_column(String(128))       # info:gpu:name
+    max_bandwidth_gbps: Mapped[Optional[object]] = mapped_column(Numeric(10, 2))  # quota:max_rate (Mbit/s -> Gbit/s)
+    max_pps: Mapped[Optional[int]] = mapped_column(Integer)            # quota:max_pps
+
+
+class VolumeTypeCatalogEntry(Base):
+    """Tipo de disco EVS de una región según ``CinderListVolumeTypes`` (información pública)."""
+
+    __tablename__ = "volume_type_catalog"
+    __table_args__ = (UniqueConstraint("region", "name"), Index("ix_volume_type_catalog_region", "region"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    availability_zones: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    sold_out_zones: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+
+class RdsFlavorCatalogEntry(Base):
+    """Flavor de RDS de una región y motor según RDS ``ListFlavors`` (información pública)."""
+
+    __tablename__ = "rds_flavor_catalog"
+    __table_args__ = (UniqueConstraint("region", "engine", "engine_version", "spec_code"),
+                      Index("ix_rds_flavor_catalog_region_engine", "region", "engine"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    engine: Mapped[str] = mapped_column(String(32), nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    spec_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    vcpus: Mapped[int] = mapped_column(Integer, nullable=False)
+    ram_gb: Mapped[object] = mapped_column(Numeric(10, 2), nullable=False)
+    instance_mode: Mapped[str] = mapped_column(String(16), nullable=False)   # single | ha | replica
+    az_status: Mapped[Optional[dict]] = mapped_column(JSONType)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+BSS_CODE_KINDS = ("service", "resource", "usage")
+
+
+class BssCodeCatalogEntry(Base):
+    """Código de BSS confirmado con ``ListServiceTypes``/``ListResourceTypes``/``ListUsageTypes``."""
+
+    __tablename__ = "bss_code_catalog"
+    __table_args__ = (UniqueConstraint("kind", "code"), CheckConstraint(_in("kind", BSS_CODE_KINDS), name="kind"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    code: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(200))
+    parent_code: Mapped[Optional[str]] = mapped_column(String(128))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+# ---------------------------------------------------------------- Enterprise Projects (IAM Discovery)
+class EnterpriseProject(TimestampMixin, Base):
+    """Enterprise Project de Huawei Cloud visible para la identidad IAM de una cuenta.
+
+    Pertenece a HUAWEI CLOUD (no es un tenant de la plataforma). Se sincroniza con
+    EPS ``ListEnterpriseProject``; los recursos lo referencian por
+    ``resources.enterprise_project_id`` (= ``huawei_ep_id``). No se borra si deja de
+    aparecer: se marca ``present = false``.
+    """
+
+    __tablename__ = "enterprise_projects"
+    __table_args__ = (UniqueConstraint("account_id", "huawei_ep_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("cloud_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    huawei_ep_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[Optional[int]] = mapped_column(Integer)          # 1 habilitado, 2 deshabilitado (EPS)
+    ep_type: Mapped[Optional[str]] = mapped_column(String(16))      # prod | poc (EPS)
+    present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    discovered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+# ---------------------------------------------------------------- Auditoría de servidores (SSH)
+SERVER_AUDIT_STATUSES = ("queued", "running", "succeeded", "failed")
+
+
+class Server(TimestampMixin, Base):
+    """Servidor Linux de un cliente que se audita por SSH con ``server_audit/scripts/server-audit.sh``.
+
+    La contraseña (SSH y sudo) se guarda CIFRADA (``SecretCipher``) y nunca se devuelve.
+    ``host_fingerprint`` = huella SHA256 de la clave del servidor (primera conexión, TOFU)."""
+
+    __tablename__ = "servers"
+    __table_args__ = (UniqueConstraint("client_id", "name"),
+                      CheckConstraint("port BETWEEN 1 AND 65535", name="port_range"),
+                      CheckConstraint("key_version > 0", name="key_version_positive"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    host: Mapped[str] = mapped_column(String(255), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False, default=22, server_default="22")
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    password_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    key_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    host_fingerprint: Mapped[Optional[str]] = mapped_column(String(128))
+    description: Mapped[Optional[str]] = mapped_column(String(500))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+
+
+class ServerAuditRun(Base):
+    """Una ejecución de ``server-audit.sh`` en un servidor (``batch_id`` agrupa «Auditar todos»)."""
+
+    __tablename__ = "server_audit_runs"
+    __table_args__ = (CheckConstraint(_in("status", SERVER_AUDIT_STATUSES), name="status"),
+                      Index("ix_server_audit_runs_client_batch", "client_id", "batch_id"),
+                      Index("ix_server_audit_runs_server_created", "server_id", "created_at"))
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    server_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("servers.id", ondelete="SET NULL"))
+    server_name: Mapped[str] = mapped_column(String(100), nullable=False)   # se conserva si se borra el servidor
+    batch_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    # Marca con microsegundos desde Python: el orden "última auditoría" no depende de la precisión de la base.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False,
+                                                 default=lambda: datetime.now(timezone.utc))
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    script_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    hostname: Mapped[Optional[str]] = mapped_column(String(255))
+    os: Mapped[Optional[str]] = mapped_column(String(255))
+    overall_score: Mapped[Optional[int]] = mapped_column(Integer)
+    hardening_pct: Mapped[Optional[int]] = mapped_column(Integer)
+    updates_pct: Mapped[Optional[int]] = mapped_column(Integer)
+    result_json: Mapped[Optional[dict]] = mapped_column(JSONType)
+    report_html: Mapped[Optional[str]] = mapped_column(Text)
+    error_kind: Mapped[Optional[str]] = mapped_column(String(32))
+    error_message: Mapped[Optional[str]] = mapped_column(String(1000))
+    requested_by: Mapped[Optional[str]] = mapped_column(String(200))

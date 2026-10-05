@@ -49,3 +49,15 @@ No hay un login "casero": las contraseñas de usuarios no se almacenan en esta a
    login real, `actor_subject` pasará a ser el usuario autenticado sin cambiar nada más.
 
 Las rutas no cambian: ya declaran el permiso que necesitan.
+
+## Operaciones sobre recursos (futuro, NO habilitadas)
+
+La plataforma es de solo lectura sobre Huawei Cloud. Antes de habilitar operaciones como
+iniciar, detener o reiniciar ECS se necesita, como mínimo:
+
+1. Un permiso nuevo y separado (p. ej. `resources:operate`), fuera de `viewer`/`operator`
+   por defecto, concedido explícitamente por cliente.
+2. Login real (OIDC) para que cada operación tenga un usuario identificado.
+3. Confirmación explícita por operación, auditoría con resultado y límite de frecuencia.
+4. Identidad IAM de la cuenta con permisos de escritura mínimos y separada de la de lectura.
+5. Las rutas de operación en un router propio que solo se monte si se activa por configuración.

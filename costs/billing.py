@@ -9,10 +9,10 @@ Confirmado en el SDK ``huaweicloudsdkbss`` 3.1.216:
   ``cloud_service_type``, ``amount``, ``official_amount``, ``enterprise_project_id``…),
   ``total_count`` y ``currency``.
 
-PENDIENTE DE VALIDAR con una cuenta real: el endpoint BSS a usar para cuentas
-internacionales (``huaweicloudsdkbss`` en cn-north-1, como el módulo de costos
-existente, frente a ``huaweicloudsdkbssintl``) y los permisos IAM necesarios. La
-obtención del cliente es inyectable (``client_builder``) para poder cambiarla.
+Endpoint BSS: el del sitio de la cuenta (``core.bss``; International por defecto,
+``bss-intl.myhuaweicloud.com``). Con una cuenta real se comprobó que el BSS de China
+(``cn-north-1``) responde ``CBC.0156`` a cuentas International. PENDIENTE DE VALIDAR:
+los permisos IAM necesarios. La obtención del cliente es inyectable (``client_builder``).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from core.bss import bss_models, create_bss_client
 from core.clients import ClientFactory
 from core.pagination import OffsetPagination, Page, paginate
 from core.serialization import serialize_items
@@ -28,20 +29,17 @@ from costs.report import CostLine, CostReport
 from db.models import InventoryResource
 
 PAGE_SIZE = 100
-BSS_REGION = "cn-north-1"  # el mismo que usa services/huawei_costs.py
 
 
 def default_client_builder(clients: ClientFactory) -> Any:
-    from huaweicloudsdkbss.v2 import BssClient
-    from huaweicloudsdkbss.v2.region.bss_region import BssRegion
-
-    return clients.create_global(BssClient, BssRegion, "bss", BSS_REGION)
+    """Cliente BSS del sitio de la cuenta (ver ``core.bss``)."""
+    return create_bss_client(clients)
 
 
 def fetch_resource_bills(clients: ClientFactory, month: str, *,
                          client_builder: Callable[[ClientFactory], Any] = default_client_builder) -> Dict[str, Any]:
     """Todos los registros de consumo del mes (paginados). Lanza las excepciones del SDK."""
-    from huaweicloudsdkbss.v2 import ListCustomerselfResourceRecordsRequest
+    ListCustomerselfResourceRecordsRequest = bss_models().ListCustomerselfResourceRecordsRequest
 
     client = client_builder(clients)
     currency: Dict[str, Optional[str]] = {"value": None}

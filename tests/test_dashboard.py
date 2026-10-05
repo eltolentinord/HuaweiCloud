@@ -16,7 +16,7 @@ class TestDashboardPage(unittest.TestCase):
     def test_page_and_script_are_served(self):
         page = self.http.get("/dashboard")
         self.assertEqual(page.status_code, 200)
-        self.assertIn('src="/static/dashboard.js"', page.text)
+        self.assertIn('src="/static/dashboard.js?v=', page.text)
         script = self.http.get("/static/dashboard.js")
         self.assertEqual(script.status_code, 200)
         self.assertIn("function esc(", script.text)  # todo dato de la nube se escapa

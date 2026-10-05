@@ -8,7 +8,9 @@
     python manage.py client list
     python manage.py account create acme "Producción" [--domain-id ...] [--from-env]
     python manage.py account list acme
-    python manage.py account discover acme <ACCOUNT_ID>
+    python manage.py account discover acme <ACCOUNT_ID>        # solo Projects (compatibilidad)
+    python manage.py account validate acme <ACCOUNT_ID>        # autentica AK/SK con IAM (no sincroniza)
+    python manage.py account iam-discover acme <ACCOUNT_ID>    # Projects + Regions + Enterprise Projects
     python manage.py project list acme <ACCOUNT_ID>
     python manage.py project add acme <ACCOUNT_ID> <HUAWEI_PROJECT_ID> <REGION>
     python manage.py scan run acme <ACCOUNT_ID> [--service ecs] [--region la-north-2] [--project <ID>] [--workers 4]
@@ -36,7 +38,7 @@ from db.session import get_session_factory, session_scope
 from repositories import scans as scans_repo
 from scanning.engine import scan_account
 from scanning.settings import ScanSettings
-from tenancy import accounts, audit, clients, projects, schedules
+from tenancy import accounts, audit, clients, iam_discovery, projects, schedules
 from tenancy.catalog_sync import sync_catalog
 from tenancy.errors import TenancyError
 from tenancy.projects import DiscoveryFailedError
@@ -59,8 +61,29 @@ def cmd_keys(args) -> None:
         print("Guárdala como INVENTORY_ENCRYPTION_KEYS=\"<version>:<clave>\" fuera del repositorio.",
               file=sys.stderr)
         return
+    from server_audit.servers import reencrypt_servers
+
     with session_scope() as session:
-        print(f"Cuentas recifradas: {accounts.reencrypt_all(session, FernetKeyring.from_env())}")
+        keyring = FernetKeyring.from_env()
+        print(f"Cuentas recifradas: {accounts.reencrypt_all(session, keyring)}")
+        print(f"Servidores recifrados: {reencrypt_servers(session, keyring)}")
+
+
+def cmd_server_audit(args) -> None:
+    """Sustituye el server-audit.sh incluido por una versión nueva del usuario (normaliza CRLF -> LF)."""
+    import hashlib
+    from pathlib import Path
+
+    from server_audit.service import AUDIT_SCRIPT
+
+    source = Path(args.file)
+    data = source.read_bytes().replace(b"\r\n", b"\n")
+    if not data.startswith(b"#!") or b"bash" not in data.split(b"\n", 1)[0]:
+        raise SystemExit("Error: el archivo no parece un script bash (falta el shebang).")
+    if b"-j" not in data or b"generate_json_report" not in data:
+        raise SystemExit("Error: el script debe soportar '-j' (JSON) para que la plataforma lea el resultado.")
+    AUDIT_SCRIPT.write_bytes(data)
+    print(f"server-audit.sh actualizado · SHA256 {hashlib.sha256(data).hexdigest()}")
 
 
 def cmd_catalog(args) -> None:
@@ -94,6 +117,28 @@ def cmd_account(args) -> None:
         elif args.action == "list":
             for account in accounts.list_accounts(session, client_id):
                 print(f"{account.id}  {account.name:<24} {account.status:<9} key_v{account.key_version}")
+        elif args.action == "validate":
+            check = iam_discovery.validate_credentials(session, FernetKeyring.from_env(), client_id,
+                                                       uuid.UUID(args.account_id))
+            audit.record(session, audit.cli_principal(), "account.validate", client_id=client_id,
+                         account_id=uuid.UUID(args.account_id), target=("account", args.account_id),
+                         details={"status": check.account_status})
+            visible = "?" if check.projects_visible is None else check.projects_visible
+            print(f"autenticada={'sí' if check.authenticated else 'no'} estado={check.account_status} "
+                  f"proyectos_visibles={visible}{f'  ({check.message})' if check.message else ''}")
+        elif args.action == "iam-discover":
+            try:
+                report = iam_discovery.discover(session, FernetKeyring.from_env(), client_id,
+                                                uuid.UUID(args.account_id))
+            except DiscoveryFailedError as exc:
+                session.commit()
+                raise SystemExit(f"Descubrimiento fallido: {exc.error.message}")
+            audit.record(session, audit.cli_principal(), "account.discover", client_id=client_id,
+                         account_id=uuid.UUID(args.account_id), target=("account", args.account_id),
+                         details={"status": "ok" if report.complete else "partial", "regions": report.regions})
+            for name, step in report.steps.items():
+                print(f"{name:<20} {step.status:<12} {step.count:>4}  {step.message or ''}")
+            print(f"regiones: {', '.join(report.regions) or 'ninguna'}")
         else:
             try:
                 result = projects.discover_projects(session, FernetKeyring.from_env(), client_id,
@@ -223,9 +268,14 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--from-env", action="store_true", help="leer AK/SK de HUAWEI_AK/HUAWEI_SK")
     listing = account_sub.add_parser("list")
     listing.add_argument("client")
-    discover = account_sub.add_parser("discover")
+    discover = account_sub.add_parser("discover", help="solo Projects (compatibilidad)")
     discover.add_argument("client")
     discover.add_argument("account_id")
+    for action, text in (("validate", "autentica AK/SK con IAM sin sincronizar"),
+                         ("iam-discover", "Projects + Regions + Enterprise Projects (403 = permiso insuficiente)")):
+        extra = account_sub.add_parser(action, help=text)
+        extra.add_argument("client")
+        extra.add_argument("account_id")
     account.set_defaults(func=cmd_account)
 
     project = sub.add_parser("project")
@@ -286,6 +336,12 @@ def build_parser() -> argparse.ArgumentParser:
     prune.add_argument("--purge-deleted-days", type=int, help="purgar recursos eliminados hace más de N días")
     prune.add_argument("--apply", action="store_true", help="aplicar (sin esto solo simula)")
     maintenance.set_defaults(func=cmd_maintenance)
+
+    server_audit = sub.add_parser("server-audit", help="script de auditoría de servidores")
+    server_audit_sub = server_audit.add_subparsers(dest="action", required=True)
+    update = server_audit_sub.add_parser("script-update", help="reemplaza server-audit.sh por una versión nueva")
+    update.add_argument("--file", required=True, help="ruta del server-audit.sh nuevo")
+    server_audit.set_defaults(func=cmd_server_audit)
     return parser
 
 

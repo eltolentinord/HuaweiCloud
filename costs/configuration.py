@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -64,6 +64,11 @@ class Component:
     quantity: int = 1
     label: str = ""
     problem: Optional[str] = None   # por qué no se puede cotizar (sin inventar)
+    # Códigos BSS explícitos (servicio, recurso, size_measure_id) cuando no son los fijos de
+    # costs.huawei_pricing.PRODUCT_CODES (RDS/OBS: confirmados con ListServiceTypes/ListResourceTypes).
+    codes: Optional[Tuple[str, str, Optional[int]]] = None
+    # Cotización por uso (OBS): (usage_factor de ListUsageTypes, usage_measure_id).
+    usage: Optional[Tuple[str, int]] = None
 
 
 @dataclass

@@ -271,10 +271,12 @@ def list_for_account(
     sort: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    enterprise_project_id: Optional[str] = None,
 ) -> Tuple[List[InventoryResource], int]:
     query = _filtered(account_id, service=service, region=region, resource_type=resource_type,
                       project_id=project_id, status=status, search=search,
-                      include_deleted=include_deleted, only_deleted=only_deleted)
+                      include_deleted=include_deleted, only_deleted=only_deleted,
+                      enterprise_project_id=enterprise_project_id)
     total = session.scalar(select(func.count()).select_from(query.subquery()))
     order: List[Any] = []
     for name, descending in parse_sort(sort):
@@ -286,7 +288,7 @@ def list_for_account(
 
 
 def _filtered(account_id: uuid.UUID, *, service=None, region=None, resource_type=None, project_id=None,
-              status=None, search=None, include_deleted=False, only_deleted=False):
+              status=None, search=None, include_deleted=False, only_deleted=False, enterprise_project_id=None):
     query = select(InventoryResource).where(InventoryResource.account_id == account_id)
     if service:
         query = query.where(InventoryResource.service == service)
@@ -296,6 +298,8 @@ def _filtered(account_id: uuid.UUID, *, service=None, region=None, resource_type
         query = query.where(InventoryResource.resource_type == resource_type)
     if project_id:
         query = query.where(InventoryResource.project_id == project_id)
+    if enterprise_project_id:
+        query = query.where(InventoryResource.enterprise_project_id == enterprise_project_id)
     if status:
         query = query.where(func.lower(InventoryResource.status) == status.lower())
     if search:

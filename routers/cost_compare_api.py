@@ -9,6 +9,10 @@ Prefijo ``/api/clients/{client_id}/accounts/{account_id}/cost-compare``:
 - ``POST /compare/export``   la misma comparación en ``xlsx`` o ``csv``
 - ``POST /prices/refresh``   consulta precios OFICIALES a Huawei (BSS) y los guarda   [scans:run]
 - ``POST /flavors/refresh``  consulta los flavors ECS de una región (ListFlavors)       [scans:run]
+- ``GET  /catalog``          catálogo de una región: flavors (estado, zonas…) y tipos de disco (de la base)
+- ``POST /catalog/refresh``  consulta ListFlavors + CinderListVolumeTypes de una región  [scans:run]
+- ``POST /simulate``         configuración LIBRE (no tiene que existir) en varias regiones
+- ``POST /simulate/prices/refresh``  precios oficiales (BSS) de esa configuración       [scans:run]
 
 Lectura: ``costs:read``. Las dos consultas a Huawei exigen ``scans:run`` (como lanzar un
 escaneo), usan las credenciales cifradas de la cuenta y quedan en la auditoría.
@@ -32,7 +36,9 @@ from core.errors import classify_exception
 from costs import huawei_pricing, pricing
 from costs.catalog import PriceCatalog
 from costs.configuration import BANDWIDTH_MODES, DISK_TYPES, OS_TYPES, ConfigurationError
+from costs.flavor_names import disco
 from costs.region_comparison import RegionPriceComparison, project_for_region, quotable_components
+from costs.region_simulation import MAX_REGIONS, RegionSimulation, config_from_payload, flavor_dict
 from costs.resolver import BILLING_LABELS, DEFAULT_HOURS_PER_MONTH, PriceResolver
 from db.models import Region
 from db.session import get_db
@@ -62,6 +68,13 @@ class CompareIn(BaseModel):
     billing_mode: str = Field("monthly", pattern="^(monthly|on_demand)$")
     hours_per_month: int = Field(DEFAULT_HOURS_PER_MONTH, ge=1, le=744)
     items: List[CompareItemIn] = Field(..., min_length=1, max_length=50)
+
+
+class SimulateIn(BaseModel):
+    regions: List[str] = Field(..., min_length=1, max_length=MAX_REGIONS)
+    billing_mode: str = Field("monthly", pattern="^(monthly|on_demand)$")
+    hours_per_month: int = Field(DEFAULT_HOURS_PER_MONTH, ge=1, le=744)
+    config: Dict[str, Any]
 
 
 def _regions(db: Session) -> List[Region]:
@@ -252,3 +265,122 @@ def refresh_flavors(client_id: uuid.UUID, account_id: uuid.UUID, region: str = Q
     audit.record(db, actor, "flavors.refresh", client_id=client_id, account_id=account.id,
                  details={"region_id": region, "fields": [f"flavors={count}"]})
     return {"region": region, "flavors": count}
+
+
+# ---------------------------------------------------------------- catálogo por región
+def _known_region(db: Session, region: str) -> str:
+    if region not in {r.id for r in _regions(db)}:
+        raise ValidationFailedError("Región desconocida.")
+    return region
+
+
+@router.get("/catalog")
+def catalog(client_id: uuid.UUID, account_id: uuid.UUID, region: str = Query(..., max_length=64),
+            db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Flavors y tipos de disco de la región tal como los devolvió Huawei la última vez (no llama a Huawei)."""
+    account = get_account(db, client_id, account_id)
+    region = _known_region(db, region)
+    store = PriceCatalog(db)
+    flavors = store.flavors(region)
+    volumes = store.volume_types(region)
+    return {
+        "region": region,
+        "has_project": project_for_region(db, account.id, region) is not None,
+        "flavors": [flavor_dict(f) for f in flavors],
+        "flavors_updated_at": max((f.fetched_at for f in flavors), default=None),
+        "volume_types": [{"name": v.name, "tipo": disco(v.name), "availability_zones": v.availability_zones or [],
+                          "sold_out_zones": v.sold_out_zones or [],
+                          "available_zones": [z for z in (v.availability_zones or [])
+                                              if z not in set(v.sold_out_zones or [])]} for v in volumes],
+        "volume_types_updated_at": max((v.fetched_at for v in volumes), default=None),
+    }
+
+
+def _safe_error(exc: Exception, service: str, region: str, clients: ClientFactory) -> Dict[str, Any]:
+    error = classify_exception(exc, service=service, region=region, secrets=clients.secrets)
+    return {"servicio": service, "mensaje": error.message, "categoria": error.kind, "http_status": error.http_status,
+            "error_code": error.error_code, "request_id": error.request_id, "accion_iam": error.iam_action}
+
+
+@router.post("/catalog/refresh", dependencies=CALLS_HUAWEI)
+def refresh_catalog(client_id: uuid.UUID, account_id: uuid.UUID, region: str = Query(..., max_length=64),
+                    db: Session = Depends(get_db), cipher: SecretCipher = Depends(get_cipher),
+                    actor: Principal = Depends(get_principal)):
+    """Consulta a Huawei los flavors (ECS) y los tipos de disco (EVS) de la región. Si una de las
+    dos consultas falla, la otra se guarda igualmente y el error se devuelve clasificado."""
+    region = _known_region(db, region)
+    account = get_account(db, client_id, account_id)
+    project = project_for_region(db, account.id, region)
+    if project is None:
+        raise ValidationFailedError(f"Sin Project en la cuenta para {region}: no se puede consultar el catálogo.")
+    clients = _clients(db, cipher, client_id, account_id)
+    store, now = PriceCatalog(db), datetime.now(timezone.utc)
+    result: Dict[str, Any] = {"region": region, "flavors": None, "volume_types": None, "errors": []}
+    try:
+        flavors = huawei_pricing.fetch_flavors(clients, region=region, project_id=project.huawei_project_id,
+                                               client_builder=huawei_pricing.default_ecs_builder)
+        result["flavors"] = store.replace_flavors(region, flavors, fetched_at=now)
+    except Exception as exc:  # clasificado y redactado: nunca AK/SK
+        result["errors"].append(_safe_error(exc, "ecs", region, clients))
+    try:
+        volumes = huawei_pricing.fetch_volume_types(clients, region=region, project_id=project.huawei_project_id,
+                                                    client_builder=huawei_pricing.default_evs_builder)
+        result["volume_types"] = store.replace_volume_types(region, volumes, fetched_at=now)
+    except Exception as exc:
+        result["errors"].append(_safe_error(exc, "evs", region, clients))
+    audit.record(db, actor, "catalog.refresh", client_id=client_id, account_id=account.id,
+                 details={"region_id": region, "fields": [f"flavors={result['flavors']}",
+                                                          f"volume_types={result['volume_types']}",
+                                                          f"errors={len(result['errors'])}"]})
+    if result["flavors"] is None and result["volume_types"] is None:
+        raise HTTPException(status_code=502, detail=result["errors"][0])
+    return result
+
+
+# ---------------------------------------------------------------- configuración libre
+def _simulation(db: Session, client_id: uuid.UUID, account_id: uuid.UUID, body: SimulateIn):
+    service = _service(db, client_id, account_id, body.billing_mode, body.hours_per_month)
+    simulation = RegionSimulation(db, service.account, service.resolver, [r.id for r in _regions(db)])
+    try:
+        config = config_from_payload(body.config)
+        simulation._regions(body.regions)  # valida antes de calcular
+    except (ConfigurationError, ValueError) as exc:
+        raise ValidationFailedError(str(exc)) from None
+    return simulation, config
+
+
+@router.post("/simulate")
+def simulate(client_id: uuid.UUID, account_id: uuid.UUID, body: SimulateIn,
+             db: Session = Depends(get_db)) -> Dict[str, Any]:
+    simulation, config = _simulation(db, client_id, account_id, body)
+    return simulation.simulate(config, body.regions)
+
+
+@router.post("/simulate/prices/refresh", dependencies=CALLS_HUAWEI)
+def refresh_simulation_prices(client_id: uuid.UUID, account_id: uuid.UUID, body: SimulateIn,
+                              db: Session = Depends(get_db), cipher: SecretCipher = Depends(get_cipher),
+                              actor: Principal = Depends(get_principal)):
+    simulation, config = _simulation(db, client_id, account_id, body)
+    wanted = simulation.quotable(config, body.regions)
+    if sum(len(c) for c in wanted.values()) > MAX_QUOTES_PER_REFRESH:
+        raise ValidationFailedError(f"Demasiados componentes distintos para una consulta (máximo "
+                                    f"{MAX_QUOTES_PER_REFRESH}).")
+    clients = _clients(db, cipher, client_id, account_id)
+    store = PriceCatalog(db)
+    stored, failures = 0, []
+    for region, components in wanted.items():
+        project = project_for_region(db, simulation.account.id, region)
+        if project is None:
+            failures += [{"component": c.label, "region": region,
+                          "reason": "Sin Project en la cuenta: no se puede cotizar en esta región."}
+                         for c in components]
+            continue
+        quotes, failed = huawei_pricing.fetch_quotes(
+            clients, project_id=project.huawei_project_id, region=region, components=components,
+            billing_mode=body.billing_mode, client_builder=huawei_pricing.default_bss_builder)
+        stored += store.store(quotes)
+        failures += failed
+    audit.record(db, actor, "prices.refresh", client_id=client_id, account_id=simulation.account.id,
+                 details={"regions": sorted(wanted), "fields": ["mode=simulation", f"stored={stored}",
+                                                                f"failed={len(failures)}"]})
+    return {"stored": stored, "failures": failures}

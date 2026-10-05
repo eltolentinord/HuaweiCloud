@@ -5,7 +5,9 @@
 
   const $ = (id) => document.getElementById(id);
   const PAGE = 50;
-  const state = { clientId: "", accountId: "", offset: 0, total: 0, scans: [], polling: null };
+  // Enlace directo (p. ej. desde /clientes): ?client=…&account=… — solo se usan si existen en las listas visibles.
+  const linked = new URLSearchParams(location.search);
+  const state = { clientId: linked.get("client") || "", accountId: linked.get("account") || "", offset: 0, total: 0, scans: [], polling: null };
 
   /* ---------- utilidades ---------- */
   function esc(value) {
@@ -100,6 +102,11 @@
   try { initialTab = localStorage.getItem("hc_tab") || "summary"; } catch (e) {}
   const fromHash = Object.keys(TAB_HASH).find((k) => `#${TAB_HASH[k]}` === location.hash);
   if (fromHash) initialTab = fromHash;
+  // Enlaces de la barra lateral (/dashboard#recursos, #historial) estando ya en el dashboard.
+  window.addEventListener("hashchange", () => {
+    const tab = Object.keys(TAB_HASH).find((k) => `#${TAB_HASH[k]}` === location.hash);
+    if (tab) showTab(tab);
+  });
   showTab(document.querySelector(`[data-panel="${initialTab}"]`) ? initialTab : "summary");
 
   /* ---------- carga de clientes y cuentas ---------- */
@@ -134,8 +141,24 @@
       ${plural(account.projects, "proyecto", "proyectos")} en
       ${account.regions.map((r) => `<span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-mono">${esc(r)}</span>`).join("") || "ninguna región"}`;
     $("btnScan").disabled = false;
+    await loadNames();
     await Promise.all([loadStats(), loadScans(), loadResources(), loadSchedules()]);
     icons();
+  }
+
+  /** Nombres de Project y Enterprise Project de la cuenta (para mostrarlos en la tabla y filtrar). */
+  async function loadNames() {
+    const q = `?account_id=${encodeURIComponent(state.accountId)}`;
+    try {
+      const [projects, eps] = await Promise.all([api(`/api/clients/${state.clientId}/projects${q}`),
+        api(`/api/clients/${state.clientId}/enterprise-projects${q}`)]);
+      state.projectNames = Object.fromEntries(projects.map((p) => [p.id, p.name || p.huawei_project_id]));
+      state.epNames = Object.fromEntries(eps.map((e) => [e.huawei_ep_id, e.name]));
+    } catch (e) { state.projectNames = {}; state.epNames = {}; }
+    const current = $("fEp").value;
+    $("fEp").innerHTML = '<option value="">Todos los Enterprise Projects</option>' + Object.entries(state.epNames || {})
+      .map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join("");
+    $("fEp").value = state.epNames && state.epNames[current] ? current : "";
   }
 
   /* ---------- estado general ---------- */
@@ -184,9 +207,8 @@
 
   /* ---------- cifras clave ---------- */
   function kpi(label, value, icon, hint) {
-    return `<div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
-      <div class="flex items-center gap-2 text-xs font-medium text-slate-500"><i data-lucide="${icon}" class="w-4 h-4"></i>${esc(label)}</div>
-      <div class="text-2xl font-bold mt-1">${value}</div><div class="text-xs text-slate-500 mt-0.5">${hint}</div></div>`;
+    return `<div class="kpi"><span class="kpi-icon"><i data-lucide="${icon}" class="w-5 h-5"></i></span>
+      <div class="min-w-0"><div class="kpi-label">${esc(label)}</div><div class="kpi-value">${value}</div><div class="kpi-hint">${hint}</div></div></div>`;
   }
 
   async function loadStats() {
@@ -284,6 +306,12 @@
   /* ---------- escaneos ---------- */
   async function loadScans() {
     state.scans = await api(`${base()}/scans?limit=20`);
+    $("recentScans").innerHTML = state.scans.slice(0, 5).map((s) => `<div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 border-b last:border-b-0 border-slate-100 dark:border-slate-800">
+      <span class="font-mono text-xs text-slate-500 w-8">#${esc(s.sequence)}</span>${badge(s.status)}
+      <span class="text-sm" title="${esc(fmtDate(s.started_at || s.created_at))}">${esc(fmtAgo(s.started_at || s.created_at))}</span>
+      <span class="text-sm text-slate-500"><b class="text-slate-800 dark:text-slate-200 tabular-nums">${esc(s.total_resources)}</b> recursos</span>
+      <span class="ml-auto text-xs">${s.total_errors ? `<span class="badge badge-red">${plural(s.total_errors, "error", "errores")}</span> ` : ""}${s.total_warnings ? `<span class="badge badge-amber">${plural(s.total_warnings, "aviso", "avisos")}</span>` : ""}${!s.total_errors && !s.total_warnings ? '<span class="badge badge-green">sin incidencias</span>' : ""}</span></div>`).join("")
+      || '<div class="empty-state !border-0 !py-6"><div class="empty-icon"><i data-lucide="scan-search" class="w-5 h-5"></i></div><p class="text-sm">Todavía no hay escaneos de esta cuenta.</p></div>';
     $("scanHistory").innerHTML = state.scans.map((s, i) => {
       const changes = s.total_created + s.total_updated + s.total_deleted;
       return `<tr>
@@ -367,14 +395,23 @@
     if ($("fSearch").value.trim()) params.set("search", $("fSearch").value.trim());
     if ($("fService").value) params.set("service", $("fService").value);
     if ($("fRegion").value) params.set("region", $("fRegion").value);
+    if ($("fEp").value) params.set("enterprise_project_id", $("fEp").value);
     if ($("fSort").value) params.set("sort", $("fSort").value);
     if ($("fState").value === "deleted") params.set("only_deleted", "true");
     if ($("fState").value === "all") params.set("include_deleted", "true");
     return params;
   }
   function resetFilters() {
-    $("fSearch").value = ""; $("fService").value = ""; $("fRegion").value = ""; $("fState").value = "active"; $("fSort").value = "";
+    $("fSearch").value = ""; $("fService").value = ""; $("fRegion").value = ""; $("fEp").value = ""; $("fState").value = "active"; $("fSort").value = "";
     state.offset = 0;
+  }
+
+  function statusBadge(status) {
+    if (!status) return '<span class="text-slate-400">—</span>';
+    const v = String(status).toLowerCase();
+    const tone = /^(active|available|in-use|running|normal|ok|opened|up)$/.test(v) ? "badge-green"
+      : /(error|fault|fail|deleted|abnormal)/.test(v) ? "badge-red" : /(stop|shutoff|frozen|down|closed|pending|build)/.test(v) ? "badge-amber" : "badge-slate";
+    return `<span class="badge ${tone}">${esc(status)}</span>`;
   }
 
   async function loadResources() {
@@ -384,13 +421,20 @@
     const page = await api(`${base()}/resources?${params}`);
     state.total = page.total;
     $("tabCountResources").textContent = page.total;
-    $("resources").innerHTML = page.items.map((r) => `<tr class="hover:bg-blue-50/50 dark:hover:bg-blue-400/5 cursor-pointer" data-id="${esc(r.id)}">
-      <td class="px-4 py-2.5"><div class="font-semibold">${esc(r.name || r.provider_id)}${r.deleted_at ? ' <span class="ml-1 px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-[10px] text-red-700 dark:text-red-300">eliminado</span>' : ""}</div>
-        <div class="text-[11px] text-slate-500 font-mono truncate max-w-xs">${esc(r.resource_type)}</div></td>
-      <td class="px-4 py-2.5 text-xs">${esc(serviceName(r.service))}</td>
-      <td class="px-4 py-2.5 text-xs">${esc(r.status || "—")}</td><td class="px-4 py-2.5 font-mono text-xs">${esc(r.region || "—")}</td>
-      <td class="px-4 py-2.5 text-xs whitespace-nowrap" title="${esc(fmtDate(r.last_seen))}">${esc(fmtAgo(r.last_seen))}</td></tr>`).join("")
-      || '<tr><td colspan="5" class="px-4 py-8 text-center text-sm text-slate-500">No hay recursos con estos filtros.</td></tr>';
+    const projectName = (id) => (id && state.projectNames && state.projectNames[id]) || null;
+    const epName = (id) => (id ? (state.epNames && state.epNames[id]) || (id === "0" ? "default" : null) : null);
+    $("resources").innerHTML = page.items.map((r) => `<tr class="cursor-pointer" data-id="${esc(r.id)}">
+      <td class="min-w-0"><div class="font-semibold text-slate-900 dark:text-slate-100 break-words">${esc(r.name || r.provider_id)}${r.deleted_at ? ' <span class="badge badge-red ml-1">eliminado</span>' : ""}</div>
+        <div class="text-[11px] text-slate-500 font-mono truncate max-w-[16rem]" title="${esc(r.resource_type)}">${esc(r.resource_type)}</div></td>
+      <td><span class="badge badge-svc" title="${esc(serviceName(r.service))}">${esc(r.service)}</span></td>
+      <td>${statusBadge(r.status)}</td>
+      <td class="hidden md:table-cell"><code class="text-xs font-mono">${esc(r.region || "—")}</code></td>
+      <td class="hidden lg:table-cell text-xs">${esc(projectName(r.project_id) || (r.project_id ? "—" : "Global (cuenta)"))}</td>
+      <td class="hidden xl:table-cell text-xs">${r.enterprise_project_id ? esc(epName(r.enterprise_project_id) || r.enterprise_project_id) : '<span class="text-slate-400">—</span>'}</td>
+      <td class="hidden sm:table-cell text-xs text-slate-500 whitespace-nowrap" title="${esc(fmtDate(r.last_seen))}">${esc(fmtAgo(r.last_seen))}</td></tr>`).join("")
+      || `<tr><td colspan="7"><div class="empty-state !border-0 !py-8"><div class="empty-icon"><i data-lucide="search-x" class="w-5 h-5"></i></div>
+        <p class="font-semibold text-slate-700 dark:text-slate-200">No hay recursos con estos filtros</p><p class="text-sm">Prueba a quitar filtros o cambia la búsqueda.</p></div></td></tr>`;
+    icons();
     $("pageInfo").textContent = page.total ? `Mostrando ${state.offset + 1}–${Math.min(state.offset + PAGE, page.total)} de ${page.total}` : "";
     $("prevPage").disabled = state.offset === 0;
     $("nextPage").disabled = state.offset + PAGE >= page.total;
@@ -402,7 +446,7 @@
 
   let searchTimer = null;
   $("fSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.offset = 0; loadResources(); }, 300); });
-  ["fService", "fRegion", "fState", "fSort"].forEach((id) => $(id).addEventListener("change", () => { state.offset = 0; loadResources(); }));
+  ["fService", "fRegion", "fEp", "fState", "fSort"].forEach((id) => $(id).addEventListener("change", () => { state.offset = 0; loadResources(); }));
   $("fClear").addEventListener("click", () => { resetFilters(); loadResources(); });
   $("prevPage").addEventListener("click", () => { state.offset = Math.max(0, state.offset - PAGE); loadResources(); });
   $("nextPage").addEventListener("click", () => { state.offset += PAGE; loadResources(); });

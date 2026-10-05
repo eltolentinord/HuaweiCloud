@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calculadora de precios · Huawei Cloud Inventory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } } };</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261005" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="h-full app-body font-sans antialiased">
+  <div class="flex h-full">
+    {% with active="calculadora" %}{% include "_sidebar.html" %}{% endwith %}
+
+    <div class="flex-1 flex flex-col min-w-0">
+      {% include "_mobile_nav.html" %}
+      <header class="app-header px-4 md:px-6 py-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="mr-auto min-w-0 flex-1">
+            <nav class="crumbs" aria-label="Ruta"><a href="/clientes">Inicio</a><i data-lucide="chevron-right" class="w-3 h-3"></i><span>Costos</span><i data-lucide="chevron-right" class="w-3 h-3"></i><span class="text-slate-700 dark:text-slate-300">Calculadora de precios</span></nav>
+            <h1 class="text-base font-bold leading-tight text-slate-900 dark:text-white">Calculadora de precios</h1>
+          </div>
+          <span class="hidden md:inline-flex badge badge-blue"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>Precios oficiales de lista · simulación</span>
+          <button id="btnDark" title="Modo claro/oscuro" class="icon-btn"><i data-lucide="moon" class="w-4 h-4"></i></button>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto">
+        <div class="max-w-screen-2xl mx-auto p-4 md:p-6 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_24rem] gap-5 items-start">
+          <!-- ================= CONFIGURACIÓN ================= -->
+          <div class="space-y-5 min-w-0">
+            <div id="alerts" class="space-y-3"></div>
+
+            <section class="card p-4 md:p-5 space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+                <label class="field">Cliente<select id="clientSelect" class="input"></select></label>
+                <label class="field">Cuenta<select id="accountSelect" class="input"></select></label>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <label class="field">Región<select id="region" class="input"></select></label>
+                <label class="field">Modo de cobro<select id="billingMode" class="input"></select></label>
+                <label class="field"><span id="durationLabel">Duración</span><select id="duration" class="input"></select></label>
+                <label class="field">Cantidad<input id="quantity" type="number" min="1" max="100" value="1" class="input" /></label>
+              </div>
+              <p id="regionNote" class="text-xs"></p>
+              <nav class="-mb-px flex gap-1 overflow-x-auto border-b border-slate-100 dark:border-slate-800" role="tablist" aria-label="Producto">
+                <button type="button" class="tab tab-active" role="tab" data-product="ecs" aria-selected="true"><i data-lucide="server" class="w-4 h-4"></i>Servidor (ECS)</button>
+                <button type="button" class="tab" role="tab" data-product="evs" aria-selected="false"><i data-lucide="hard-drive" class="w-4 h-4"></i>Disco (EVS)</button>
+                <button type="button" class="tab" role="tab" data-product="eip" aria-selected="false"><i data-lucide="globe" class="w-4 h-4"></i>IP pública (EIP)</button>
+                <button type="button" class="tab" role="tab" data-product="rds" aria-selected="false"><i data-lucide="database" class="w-4 h-4"></i>Base de datos (RDS)</button>
+                <button type="button" class="tab" role="tab" data-product="obs" aria-selected="false"><i data-lucide="archive" class="w-4 h-4"></i>Almacenamiento (OBS)</button>
+              </nav>
+
+              <!-- ECS -->
+              <div data-panel="ecs" class="space-y-4">
+                <div class="flex flex-wrap items-end gap-3">
+                  <label class="field">Sistema operativo<select id="ecsOs" class="input"><option value="linux">Linux</option><option value="windows">Windows</option></select></label>
+                  <label class="field">Arquitectura<select id="ecsArch" class="input"><option value="">Todas</option><option value="x86">x86</option><option value="arm64">Kunpeng (Arm)</option></select></label>
+                  <label class="field">vCPU<select id="ecsVcpu" class="input"></select></label>
+                  <label class="field">Memoria<select id="ecsRam" class="input"></select></label>
+                  <label class="field">Familia<select id="ecsFamily" class="input"></select></label>
+                  <label class="field flex-1 min-w-[10rem]">Buscar<input id="ecsSearch" class="input" placeholder="Nombre del flavor…" /></label>
+                </div>
+                <div class="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <div class="max-h-80 overflow-auto">
+                    <table class="table-pro min-w-full text-sm">
+                      <thead class="sticky top-0 z-10"><tr><th class="w-8"></th><th class="text-left">Flavor</th><th class="text-right">vCPU</th><th class="text-right">Memoria</th><th class="text-right">Precio</th><th class="text-left">Estado</th><th class="text-left hidden md:table-cell">Familia</th><th class="text-left hidden 2xl:table-cell">CPU / GPU</th></tr></thead>
+                      <tbody id="ecsFlavors"></tbody>
+                    </table>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-3 px-3 py-2 text-xs text-slate-500 border-t border-slate-100 dark:border-slate-800">
+                    <span id="ecsFlavorMeta" class="mr-auto"></span>
+                    <button type="button" id="btnFlavorPrices" class="btn-ghost btn-sm" title="Consulta a Huawei el precio oficial de los flavors visibles (máx. 20)"><i data-lucide="download-cloud" class="w-4 h-4"></i>Precios de los visibles</button>
+                    <button type="button" id="btnCatalog" class="btn-ghost btn-sm" title="Consulta a Huawei la lista de flavors y discos de la región"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar catálogo</button>
+                  </div>
+                </div>
+                <p class="text-sm">Flavor seleccionado: <strong id="ecsSelected" class="font-mono">—</strong></p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div class="field">Disco de sistema
+                    <div class="flex gap-2"><select id="sysType" class="input flex-1 min-w-0"></select><input id="sysSize" type="number" min="10" max="1024" value="40" class="input w-24" aria-label="GB" /><span class="self-center text-xs text-slate-500">GB</span></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="flex items-center justify-between gap-2"><span class="field !mb-0">Discos de datos</span>
+                    <button type="button" id="addDisk" class="btn-ghost btn-sm"><i data-lucide="plus" class="w-4 h-4"></i>Agregar disco</button></div>
+                  <div id="dataDisks" class="mt-2 space-y-2"></div>
+                </div>
+                <fieldset class="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-3">
+                  <label class="flex items-center gap-2 text-sm font-medium"><input id="ecsEip" type="checkbox" class="rounded" />Incluir IP pública (EIP)</label>
+                  <div id="ecsEipFields" class="hidden grid grid-cols-1 sm:grid-cols-4 gap-3"></div>
+                </fieldset>
+              </div>
+
+              <!-- EVS -->
+              <div data-panel="evs" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+                <label class="field">Tipo de disco<select id="evsType" class="input"></select></label>
+                <label class="field">Tamaño (GB)<input id="evsSize" type="number" min="10" max="32768" value="100" class="input" /></label>
+              </div>
+
+              <!-- EIP -->
+              <div data-panel="eip" class="hidden">
+                <div id="eipFields" class="grid grid-cols-1 sm:grid-cols-4 gap-3"></div>
+              </div>
+
+              <!-- RDS -->
+              <div data-panel="rds" class="hidden space-y-4">
+                <div class="flex flex-wrap items-end gap-3">
+                  <label class="field">Motor<select id="rdsEngine" class="input"></select></label>
+                  <label class="field">Versión<select id="rdsVersion" class="input"></select></label>
+                  <label class="field">Tipo de instancia<select id="rdsMode" class="input"><option value="single">Instancia única</option><option value="ha">Primaria / en espera</option><option value="replica">Réplica de lectura</option></select></label>
+                  <button type="button" id="rdsRefresh" class="btn-ghost btn-sm mb-1"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar flavors RDS</button>
+                </div>
+                <div class="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <div class="max-h-72 overflow-auto">
+                    <table class="table-pro min-w-full text-sm">
+                      <thead class="sticky top-0 z-10"><tr><th class="w-8"></th><th class="text-left">Flavor</th><th class="text-right">vCPU</th><th class="text-right">Memoria</th><th class="text-right">Precio</th><th class="text-left">Estado</th></tr></thead>
+                      <tbody id="rdsFlavors"></tbody>
+                    </table>
+                  </div>
+                  <p id="rdsMeta" class="px-3 py-2 text-xs text-slate-500 border-t border-slate-100 dark:border-slate-800"></p>
+                </div>
+                <p class="text-sm">Flavor seleccionado: <strong id="rdsSelected" class="font-mono">—</strong></p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+                  <label class="field">Almacenamiento<select id="rdsStorage" class="input"><option value="CLOUDSSD">SSD en la nube (CLOUDSSD)</option><option value="ULTRAHIGH">Ultra alto I/O (ULTRAHIGH)</option><option value="ESSD">SSD extremo (ESSD)</option><option value="COMMON">Común (COMMON)</option><option value="LOCALSSD">SSD local (LOCALSSD)</option></select></label>
+                  <label class="field">Tamaño (GB)<input id="rdsGb" type="number" min="40" max="4000" step="10" value="40" class="input" /></label>
+                </div>
+                <details class="rounded-xl border border-slate-200 dark:border-slate-800 p-3" data-codes="rds">
+                  <summary class="cursor-pointer text-sm font-medium">Códigos de facturación BSS <span class="text-xs font-normal text-slate-500" data-codes-state></span></summary>
+                  <p class="mt-2 text-xs text-slate-500">Huawei cotiza cada producto con un código de servicio y de recurso. Para RDS se eligen de la lista oficial de BSS (ListServiceTypes / ListResourceTypes); no se adivinan.</p>
+                  <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label class="field">Buscar servicio<input class="input" data-codes-search value="rds" /></label>
+                    <label class="field">Servicio<select class="input" data-codes-service></select></label>
+                    <label class="field">Recurso: instancia<select class="input" data-codes-res="instance"></select></label>
+                    <label class="field">Recurso: almacenamiento<select class="input" data-codes-res="storage"></select></label>
+                  </div>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" class="btn-ghost btn-sm" data-codes-refresh><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar códigos BSS desde Huawei</button>
+                    
+                  </div>
+                </details>
+              </div>
+
+              <!-- OBS -->
+              <div data-panel="obs" class="hidden space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+                  <label class="field">Clase de almacenamiento<select id="obsClass" class="input"><option value="STANDARD">Estándar</option><option value="WARM">Acceso poco frecuente (Warm)</option><option value="COLD">Archivo (Cold)</option></select></label>
+                  <label class="field">Datos almacenados (GB)<input id="obsGb" type="number" min="1" max="10000000" value="100" class="input" /></label>
+                </div>
+                <p class="text-xs text-amber-700 dark:text-amber-400">Huawei no documenta la cotización de OBS por API: el precio es el que BSS devuelva para el tipo de uso elegido. Valídalo con la consola antes de usarlo en un presupuesto.</p>
+                <details class="rounded-xl border border-slate-200 dark:border-slate-800 p-3" data-codes="obs">
+                  <summary class="cursor-pointer text-sm font-medium">Códigos de facturación BSS <span class="text-xs font-normal text-slate-500" data-codes-state></span></summary>
+                  <p class="mt-2 text-xs text-slate-500">Huawei cotiza cada producto con un código de servicio y de recurso. Para OBS se eligen de la lista oficial de BSS (ListServiceTypes / ListResourceTypes / ListUsageTypes); no se adivinan.</p>
+                  <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label class="field">Buscar servicio<input class="input" data-codes-search value="obs" /></label>
+                    <label class="field">Servicio<select class="input" data-codes-service></select></label>
+                    <label class="field">Recurso<select class="input" data-codes-res="resource"></select></label>
+                    <label class="field">Tipo de uso<select class="input" data-codes-usage></select></label>
+                    <label class="field">Unidad de medida (id BSS)<input type="number" min="1" max="1000" value="10" class="input" data-codes-measure /></label>
+                  </div>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <button type="button" class="btn-ghost btn-sm" data-codes-refresh><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar códigos BSS desde Huawei</button>
+                    <button type="button" class="btn-ghost btn-sm" data-usage-refresh><i data-lucide="refresh-cw" class="w-4 h-4"></i>Tipos de uso del recurso</button>
+                  </div>
+                </details>
+              </div>
+            </section>
+
+            <!-- Precio de la configuración -->
+            <section class="card p-4 md:p-5">
+              <div class="flex flex-wrap items-start gap-3">
+                <div class="mr-auto min-w-0">
+                  <p class="kpi-label">Precio de esta configuración</p>
+                  <p id="quoteTotal" class="text-2xl font-bold tabular-nums">—</p>
+                  <p id="quoteSub" class="text-xs text-slate-500"></p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button type="button" id="btnRefresh" class="btn-secondary" title="Consulta a Huawei Cloud BSS los precios oficiales de esta configuración (requiere rol operador)"><i data-lucide="download-cloud" class="w-4 h-4"></i>Consultar precios oficiales</button>
+                  <button type="button" id="btnAdd" class="btn-primary"><i data-lucide="list-plus" class="w-4 h-4"></i>Agregar a la lista</button>
+                </div>
+              </div>
+              <div id="quoteDetail" class="mt-3"></div>
+            </section>
+          </div>
+
+          <!-- ================= LISTA DE PRECIOS ================= -->
+          <aside class="card p-4 md:p-5 xl:sticky xl:top-4 space-y-3" aria-label="Lista de precios">
+            <div class="flex items-center gap-2">
+              <h2 class="card-title mr-auto">Lista de precios <span id="listCount" class="tab-count"></span></h2>
+              <button type="button" id="btnClearList" class="btn-ghost btn-sm" title="Vaciar la lista"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>
+            <ul id="list" class="space-y-2"></ul>
+            <div id="listTotal" class="border-t border-slate-100 dark:border-slate-800 pt-3"></div>
+            <div class="grid grid-cols-3 gap-2">
+              <button type="button" class="btn-secondary btn-sm" data-export="xlsx"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Excel</button>
+              <button type="button" class="btn-secondary btn-sm" data-export="pdf"><i data-lucide="file-text" class="w-4 h-4"></i>PDF</button>
+              <button type="button" class="btn-secondary btn-sm" data-export="csv"><i data-lucide="file" class="w-4 h-4"></i>CSV</button>
+            </div>
+            <p class="text-[11px] text-slate-500">Precios oficiales de lista de Huawei Cloud consultados con la cuenta; sin descuentos ni impuestos. La lista se guarda solo en este navegador.</p>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/calculator.js?v=20261005"></script>
+  <script src="/static/shell.js?v=20261005"></script>
+</body>
+</html>

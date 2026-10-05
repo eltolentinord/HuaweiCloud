@@ -11,7 +11,12 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.utils import get_column_letter
 
 from exports.excel import neutralize_formulas
-from services.cost_analysis import etiqueta_variacion  # noqa: F401  (re-export útil)
+from services.cost_analysis import etiqueta_variacion, nombre_region, nombre_servicio  # noqa: F401
+
+def _srv(product) -> str:
+    """Servicio legible a partir del código de BSS (``hws.service.type.ec2`` -> ``ECS · Elastic Cloud Server``)."""
+    servicio = nombre_servicio(product)
+    return servicio["sigla"] if servicio["sigla"] == servicio["nombre"] else f"{servicio['sigla']} · {servicio['nombre']}"
 
 AZUL_OSCURO = "1F3864"
 
@@ -45,6 +50,43 @@ def _tabla(ws, encabezados, filas, formato_moneda_cols, formato_pct_cols):
     _autoancho(ws)
 
 
+CAB_RECURSO = ["Moneda", "Recurso", "ID", "Servicio", "Región", "Especificación"]
+
+
+def _fila_recurso(cur, f):
+    return [cur, f.get("resource_name"), f.get("resource_id"),
+            f"{f.get('servicio_sigla')} · {f.get('servicio_nombre')}" if f.get("servicio_nombre") != f.get("servicio_sigla")
+            else f.get("servicio_sigla"), f.get("region_nombre") or f.get("region"), f.get("spec") or f.get("tipo")]
+
+
+def _hojas_recursos(wb, analisis, before) -> None:
+    """Hojas por recurso (solo si la consulta de detalle por recurso tuvo éxito)."""
+    monedas = (analisis.get("recursos") or {}).get("monedas")
+    if monedas is None:
+        return
+    top, cambios, altas_bajas = [], [], []
+    for m in monedas:
+        cur = m["currency"]
+        for f in m["top_mes_b"]:
+            top.append(_fila_recurso(cur, f) + ["Mes B", f["mes_b"]])
+        for f in m["top_mes_a"]:
+            top.append(_fila_recurso(cur, f) + ["Mes A", f["mes_a"]])
+        for etiqueta, clave in (("Aumento", "mayores_aumentos"), ("Reducción", "mayores_reducciones")):
+            for f in m[clave]:
+                cambios.append(_fila_recurso(cur, f) + [etiqueta, f["mes_a"], f["mes_b"], f["diferencia"],
+                                                        f["variacion_txt"]])
+        for etiqueta, clave in (("Nuevo", "nuevos"), ("Sin consumo en Mes B", "eliminados")):
+            for f in m[clave]:
+                altas_bajas.append(_fila_recurso(cur, f) + [etiqueta, f["mes_a"], f["mes_b"]])
+    indice = wb.index(before)
+    ws = wb.create_sheet("09_Top_Recursos", index=indice)
+    _tabla(ws, CAB_RECURSO + ["Mes", "Costo"], top, [8], [])
+    ws = wb.create_sheet("10_Recursos_Aumentos_Reducc", index=indice + 1)
+    _tabla(ws, CAB_RECURSO + ["Tipo", "Mes A", "Mes B", "Diferencia", "Variación"], cambios, [8, 9, 10], [])
+    ws = wb.create_sheet("11_Recursos_Nuevos_Elimin", index=indice + 2)
+    _tabla(ws, CAB_RECURSO + ["Tipo", "Mes A", "Mes B"], altas_bajas, [8, 9], [])
+
+
 def generar_excel_costos(analisis: Dict[str, Any], mes_a: str, mes_b: str,
                          base_dir: Path, errores=None) -> Path:
     wb = Workbook()
@@ -63,9 +105,15 @@ def generar_excel_costos(analisis: Dict[str, Any], mes_a: str, mes_b: str,
         ws.append([f"Moneda {m['currency']} - Diferencia", m["diferencia"]])
         ws.append([f"Moneda {m['currency']} - Variación", m["variacion_txt"]])
         ws.append([f"Moneda {m['currency']} - Región con mayor gasto", m["region_mayor_gasto"]])
-        ws.append([f"Moneda {m['currency']} - Producto más costoso", m["producto_mas_costoso"]])
-        ws.append([f"Moneda {m['currency']} - Producto que más aumentó", m["producto_mas_aumento"]])
-        ws.append([f"Moneda {m['currency']} - Producto que más disminuyó", m["producto_mas_reduccion"]])
+        for etiqueta, clave in (("Producto más costoso", "producto_mas_costoso"),
+                                ("Producto que más aumentó", "producto_mas_aumento"),
+                                ("Producto que más disminuyó", "producto_mas_reduccion")):
+            ws.append([f"Moneda {m['currency']} - {etiqueta}", _srv(m[clave]) if m.get(clave) else None])
+        recursos = {r["currency"]: r for r in (analisis.get("recursos") or {}).get("monedas", [])}.get(m["currency"])
+        if recursos and recursos.get("top_mes_b"):
+            top = recursos["top_mes_b"][0]
+            ws.append([f"Moneda {m['currency']} - Recurso de mayor costo (Mes B)",
+                       f"{top['resource_name']} ({top['servicio_sigla']}, {top['region_nombre']})"])
         ws.append([])
     _estilizar_encabezado(ws, 2)
     for r in range(2, ws.max_row + 1):
@@ -83,21 +131,29 @@ def generar_excel_costos(analisis: Dict[str, Any], mes_a: str, mes_b: str,
     reducciones = []
     nuevos = []
     eliminados = []
+    def fila_rp(cur, f):
+        return [cur, f["region"], f["product"], _srv(f["product"]), f["mes_a"], f["mes_b"], f["diferencia"],
+                f["variacion_txt"]]
+
     for m in analisis.get("monedas", []):
+        cur = m["currency"]
         for f in m["por_producto"]:
-            por_producto.append([m["currency"]] + filas_comp([f], "product")[0])
+            por_producto.append([cur, f["product"], _srv(f["product"]), f["mes_a"], f["mes_b"], f["diferencia"],
+                                 f["variacion_txt"]])
         for f in m["por_region"]:
-            por_region.append([m["currency"]] + filas_comp([f], "region")[0])
+            por_region.append([cur, f["region"], f.get("region_nombre") or nombre_region(f["region"]),
+                               f["mes_a"], f["mes_b"], f["diferencia"], f["variacion_txt"]])
         for f in m["por_region_producto"]:
-            por_region_producto.append([m["currency"], f["region"], f["product"], f["mes_a"], f["mes_b"], f["diferencia"], f["variacion_txt"]])
+            por_region_producto.append(fila_rp(cur, f))
         for f in m["mayores_aumentos"]:
-            aumentos.append([m["currency"], f["region"], f["product"], f["mes_a"], f["mes_b"], f["diferencia"], f["variacion_txt"]])
+            aumentos.append(fila_rp(cur, f))
         for f in m["mayores_reducciones"]:
-            reducciones.append([m["currency"], f["region"], f["product"], f["mes_a"], f["mes_b"], f["diferencia"], f["variacion_txt"]])
+            reducciones.append(fila_rp(cur, f))
         for n in m["servicios_nuevos"]:
-            nuevos.append([m["currency"], n["region"], n["product"], n["mes_a"], n["mes_b"]])
+            nuevos.append([cur, n["region"], n["product"], _srv(n["product"]), n["mes_a"], n["mes_b"]])
         for e in m["servicios_eliminados"]:
-            eliminados.append([m["currency"], e["region"], e["product"], e["mes_a"], e["mes_b"]])
+            eliminados.append([cur, e["region"], e["product"], _srv(e["product"]), e["mes_a"], e["mes_b"]])
+    cab_rp = ["Moneda", "Región", "Producto", "Servicio", "Mes A", "Mes B", "Diferencia", "Variación"]
 
     ws = wb.create_sheet("01_Comparacion_Mensual")
     _tabla(ws, ["Moneda", "Total Mes A", "Total Mes B", "Diferencia", "Variación"],
@@ -105,39 +161,41 @@ def generar_excel_costos(analisis: Dict[str, Any], mes_a: str, mes_b: str,
             for m in analisis.get("monedas", [])], [2, 3, 4], [])
 
     ws = wb.create_sheet("02_Costos_por_Producto")
-    _tabla(ws, ["Moneda", "Producto", "Mes A", "Mes B", "Diferencia", "Variación"], por_producto, [3, 4, 5], [])
+    _tabla(ws, ["Moneda", "Producto", "Servicio", "Mes A", "Mes B", "Diferencia", "Variación"], por_producto,
+           [4, 5, 6], [])
 
     ws = wb.create_sheet("03_Costos_por_Region")
-    _tabla(ws, ["Moneda", "Región", "Mes A", "Mes B", "Diferencia", "Variación"], por_region, [3, 4, 5], [])
+    _tabla(ws, ["Moneda", "Región", "Nombre región", "Mes A", "Mes B", "Diferencia", "Variación"], por_region,
+           [4, 5, 6], [])
 
     ws = wb.create_sheet("04_Region_y_Producto")
-    _tabla(ws, ["Moneda", "Región", "Producto", "Mes A", "Mes B", "Diferencia", "Variación"], por_region_producto, [4, 5, 6], [])
+    _tabla(ws, cab_rp, por_region_producto, [5, 6, 7], [])
     if ws.max_row > 1:
-        ws.conditional_formatting.add(f"F2:F{ws.max_row}",
+        ws.conditional_formatting.add(f"G2:G{ws.max_row}",
             CellIsRule(operator="greaterThan", formula=["0"], font=Font(color="FF0000")))
-        ws.conditional_formatting.add(f"F2:F{ws.max_row}",
+        ws.conditional_formatting.add(f"G2:G{ws.max_row}",
             CellIsRule(operator="lessThan", formula=["0"], font=Font(color="008000")))
 
     ws = wb.create_sheet("05_Mayores_Aumentos")
-    _tabla(ws, ["Moneda", "Región", "Producto", "Mes A", "Mes B", "Diferencia", "Variación"], aumentos, [4, 5, 6], [])
+    _tabla(ws, cab_rp, aumentos, [5, 6, 7], [])
 
     ws = wb.create_sheet("06_Mayores_Reducciones")
-    _tabla(ws, ["Moneda", "Región", "Producto", "Mes A", "Mes B", "Diferencia", "Variación"], reducciones, [4, 5, 6], [])
+    _tabla(ws, cab_rp, reducciones, [5, 6, 7], [])
 
     ws = wb.create_sheet("07_Servicios_Nuevos")
-    _tabla(ws, ["Moneda", "Región", "Producto", "Costo Mes A", "Costo Mes B"], nuevos, [4, 5], [])
+    _tabla(ws, ["Moneda", "Región", "Producto", "Servicio", "Costo Mes A", "Costo Mes B"], nuevos, [5, 6], [])
     if wb.worksheets[-1].max_row > 1:
-        for row in wb.worksheets[-1].iter_rows(min_row=2, max_row=wb.worksheets[-1].max_row, min_col=1, max_col=5):
+        for row in wb.worksheets[-1].iter_rows(min_row=2, max_row=wb.worksheets[-1].max_row, min_col=1, max_col=6):
             for c in row:
                 c.fill = PatternFill("solid", fgColor="FFF2CC")
 
     ws = wb.create_sheet("08_Detalle_Costos")
-    ws.append(["Moneda", "Región", "Producto", "Mes A", "Mes B", "Diferencia", "Variación"])
+    ws.append(cab_rp)
     for f in aumentos + reducciones:
         ws.append(f)
-    _estilizar_encabezado(ws, 7)
+    _estilizar_encabezado(ws, 8)
     for r in range(2, ws.max_row + 1):
-        for c in (4, 5, 6):
+        for c in (5, 6, 7):
             ws.cell(row=r, column=c).number_format = '"$"#,##0.00'
     _autoancho(ws)
 
@@ -150,14 +208,16 @@ def generar_excel_costos(analisis: Dict[str, Any], mes_a: str, mes_b: str,
 
     # Servicios eliminados en hoja propia si hay datos (se agrega antes de 99 en orden visual)
     ws_elim = wb.create_sheet("07b_Servicios_Eliminados", index=wb.index(wb["08_Detalle_Costos"]))
-    ws_elim.append(["Moneda", "Región", "Producto", "Costo Mes A", "Costo Mes B"])
+    ws_elim.append(["Moneda", "Región", "Producto", "Servicio", "Costo Mes A", "Costo Mes B"])
     for e in eliminados:
         ws_elim.append(e)
-    _estilizar_encabezado(ws_elim, 5)
+    _estilizar_encabezado(ws_elim, 6)
     for r in range(2, ws_elim.max_row + 1):
-        ws_elim.cell(row=r, column=4).number_format = '"$"#,##0.00'
         ws_elim.cell(row=r, column=5).number_format = '"$"#,##0.00'
+        ws_elim.cell(row=r, column=6).number_format = '"$"#,##0.00'
     _autoancho(ws_elim)
+
+    _hojas_recursos(wb, analisis, before=wb["99_Errores"])
 
     output_dir = Path(base_dir) / "output"
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,9 @@
 # coding: utf-8
 """Auditoría: quién hizo qué, sin secretos, con permisos y aislamiento."""
 
+import threading
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from sqlalchemy import select, text
 
@@ -95,3 +97,55 @@ class TestAuditCore(SqliteTestCase):
         self.session.delete(client)
         self.session.commit()
         self.assertEqual(self.session.execute(text("SELECT count(*) FROM audit_events")).scalar(), 1)
+
+
+class TestAuditOrdering(SqliteTestCase):
+    """El orden del registro es el orden real de los eventos, aunque el reloj repita o retroceda."""
+
+    def setUp(self):
+        super().setUp()
+        self.client, self.account, _ = seed_account(self.session, self.keyring)
+
+    def record_many(self, count):
+        for i in range(count):
+            audit.record(self.session, audit.cli_principal(), f"test.e{i}", client_id=self.client.id)
+        self.session.commit()
+
+    def listed(self):
+        rows, _ = audit.list_for_client(self.session, self.client.id, limit=1000)
+        return [r.action for r in rows if r.action.startswith("test.")]
+
+    def test_burst_of_events_keeps_insertion_order(self):
+        self.record_many(300)  # muchas en el mismo "tick" del reloj del sistema
+        self.assertEqual(self.listed(), [f"test.e{i}" for i in reversed(range(300))])
+        stamps = [r.occurred_at for r in self.session.scalars(select(AuditEvent).where(
+            AuditEvent.action.like("test.%")).order_by(AuditEvent.occurred_at))]
+        self.assertEqual(len(set(stamps)), 300)
+
+    def test_frozen_and_backwards_clock(self):
+        # El reloj es del proceso: la hora simulada debe ir por delante de la última marca emitida.
+        frozen = audit.next_timestamp() + timedelta(milliseconds=20)
+        clock = iter([frozen, frozen, frozen - timedelta(milliseconds=10), frozen + timedelta(milliseconds=5)])
+        with mock.patch("tenancy.audit._utcnow", lambda: next(clock)):
+            stamps = [audit.next_timestamp() for _ in range(4)]
+        self.assertTrue(all(a < b for a, b in zip(stamps, stamps[1:])), stamps)
+        self.assertEqual(stamps[-1], frozen + timedelta(milliseconds=5))  # vuelve al reloj real cuando avanza
+        later = frozen + timedelta(milliseconds=6)
+        with mock.patch("tenancy.audit._utcnow", lambda: later):
+            self.record_many(5)
+        self.assertEqual(self.listed(), [f"test.e{i}" for i in reversed(range(5))])
+
+    def test_concurrent_threads_never_share_a_timestamp(self):
+        stamps, lock = [], threading.Lock()
+
+        def take():
+            values = [audit.next_timestamp() for _ in range(500)]
+            with lock:
+                stamps.extend(values)
+
+        threads = [threading.Thread(target=take) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(set(stamps)), 4000)
