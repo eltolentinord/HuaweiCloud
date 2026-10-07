@@ -50,7 +50,6 @@
                 <button type="button" class="tab tab-active" role="tab" data-product="ecs" aria-selected="true"><i data-lucide="server" class="w-4 h-4"></i>Servidor (ECS)</button>
                 <button type="button" class="tab" role="tab" data-product="evs" aria-selected="false"><i data-lucide="hard-drive" class="w-4 h-4"></i>Disco (EVS)</button>
                 <button type="button" class="tab" role="tab" data-product="eip" aria-selected="false"><i data-lucide="globe" class="w-4 h-4"></i>IP pública (EIP)</button>
-                <button type="button" class="tab" role="tab" data-product="rds" aria-selected="false"><i data-lucide="database" class="w-4 h-4"></i>Base de datos (RDS)</button>
                 <button type="button" class="tab" role="tab" data-product="obs" aria-selected="false"><i data-lucide="archive" class="w-4 h-4"></i>Almacenamiento (OBS)</button>
               </nav>
 
@@ -73,6 +72,7 @@
                   </div>
                   <div class="flex flex-wrap items-center gap-3 px-3 py-2 text-xs text-slate-500 border-t border-slate-100 dark:border-slate-800">
                     <span id="ecsFlavorMeta" class="mr-auto"></span>
+                    <button type="button" id="btnRefreshFlavors" class="btn-ghost btn-sm" title="Trae los flavors reales de Huawei Cloud para esta región"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refrescar flavors</button>
                     <button type="button" id="btnFlavorPrices" class="btn-ghost btn-sm" title="Consulta a Huawei el precio oficial de los flavors visibles (máx. 20)"><i data-lucide="download-cloud" class="w-4 h-4"></i>Precios de los visibles</button>
                     <button type="button" id="btnCatalog" class="btn-ghost btn-sm" title="Consulta a Huawei la lista de flavors y discos de la región"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar catálogo</button>
                   </div>
@@ -105,66 +105,14 @@
                 <div id="eipFields" class="grid grid-cols-1 sm:grid-cols-4 gap-3"></div>
               </div>
 
-              <!-- RDS -->
-              <div data-panel="rds" class="hidden space-y-4">
-                <div class="flex flex-wrap items-end gap-3">
-                  <label class="field">Motor<select id="rdsEngine" class="input"></select></label>
-                  <label class="field">Versión<select id="rdsVersion" class="input"></select></label>
-                  <label class="field">Tipo de instancia<select id="rdsMode" class="input"><option value="single">Instancia única</option><option value="ha">Primaria / en espera</option><option value="replica">Réplica de lectura</option></select></label>
-                  <button type="button" id="rdsRefresh" class="btn-ghost btn-sm mb-1"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar flavors RDS</button>
-                </div>
-                <div class="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-                  <div class="max-h-72 overflow-auto">
-                    <table class="table-pro min-w-full text-sm">
-                      <thead class="sticky top-0 z-10"><tr><th class="w-8"></th><th class="text-left">Flavor</th><th class="text-right">vCPU</th><th class="text-right">Memoria</th><th class="text-right">Precio</th><th class="text-left">Estado</th></tr></thead>
-                      <tbody id="rdsFlavors"></tbody>
-                    </table>
-                  </div>
-                  <p id="rdsMeta" class="px-3 py-2 text-xs text-slate-500 border-t border-slate-100 dark:border-slate-800"></p>
-                </div>
-                <p class="text-sm">Flavor seleccionado: <strong id="rdsSelected" class="font-mono">—</strong></p>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
-                  <label class="field">Almacenamiento<select id="rdsStorage" class="input"><option value="CLOUDSSD">SSD en la nube (CLOUDSSD)</option><option value="ULTRAHIGH">Ultra alto I/O (ULTRAHIGH)</option><option value="ESSD">SSD extremo (ESSD)</option><option value="COMMON">Común (COMMON)</option><option value="LOCALSSD">SSD local (LOCALSSD)</option></select></label>
-                  <label class="field">Tamaño (GB)<input id="rdsGb" type="number" min="40" max="4000" step="10" value="40" class="input" /></label>
-                </div>
-                <details class="rounded-xl border border-slate-200 dark:border-slate-800 p-3" data-codes="rds">
-                  <summary class="cursor-pointer text-sm font-medium">Códigos de facturación BSS <span class="text-xs font-normal text-slate-500" data-codes-state></span></summary>
-                  <p class="mt-2 text-xs text-slate-500">Huawei cotiza cada producto con un código de servicio y de recurso. Para RDS se eligen de la lista oficial de BSS (ListServiceTypes / ListResourceTypes); no se adivinan.</p>
-                  <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label class="field">Buscar servicio<input class="input" data-codes-search value="rds" /></label>
-                    <label class="field">Servicio<select class="input" data-codes-service></select></label>
-                    <label class="field">Recurso: instancia<select class="input" data-codes-res="instance"></select></label>
-                    <label class="field">Recurso: almacenamiento<select class="input" data-codes-res="storage"></select></label>
-                  </div>
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    <button type="button" class="btn-ghost btn-sm" data-codes-refresh><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar códigos BSS desde Huawei</button>
-                    
-                  </div>
-                </details>
-              </div>
-
               <!-- OBS -->
-              <div data-panel="obs" class="hidden space-y-4">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
-                  <label class="field">Clase de almacenamiento<select id="obsClass" class="input"><option value="STANDARD">Estándar</option><option value="WARM">Acceso poco frecuente (Warm)</option><option value="COLD">Archivo (Cold)</option></select></label>
-                  <label class="field">Datos almacenados (GB)<input id="obsGb" type="number" min="1" max="10000000" value="100" class="input" /></label>
-                </div>
-                <p class="text-xs text-amber-700 dark:text-amber-400">Huawei no documenta la cotización de OBS por API: el precio es el que BSS devuelva para el tipo de uso elegido. Valídalo con la consola antes de usarlo en un presupuesto.</p>
-                <details class="rounded-xl border border-slate-200 dark:border-slate-800 p-3" data-codes="obs">
-                  <summary class="cursor-pointer text-sm font-medium">Códigos de facturación BSS <span class="text-xs font-normal text-slate-500" data-codes-state></span></summary>
-                  <p class="mt-2 text-xs text-slate-500">Huawei cotiza cada producto con un código de servicio y de recurso. Para OBS se eligen de la lista oficial de BSS (ListServiceTypes / ListResourceTypes / ListUsageTypes); no se adivinan.</p>
-                  <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label class="field">Buscar servicio<input class="input" data-codes-search value="obs" /></label>
-                    <label class="field">Servicio<select class="input" data-codes-service></select></label>
-                    <label class="field">Recurso<select class="input" data-codes-res="resource"></select></label>
-                    <label class="field">Tipo de uso<select class="input" data-codes-usage></select></label>
-                    <label class="field">Unidad de medida (id BSS)<input type="number" min="1" max="1000" value="10" class="input" data-codes-measure /></label>
-                  </div>
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    <button type="button" class="btn-ghost btn-sm" data-codes-refresh><i data-lucide="refresh-cw" class="w-4 h-4"></i>Actualizar códigos BSS desde Huawei</button>
-                    <button type="button" class="btn-ghost btn-sm" data-usage-refresh><i data-lucide="refresh-cw" class="w-4 h-4"></i>Tipos de uso del recurso</button>
-                  </div>
-                </details>
+              <div data-panel="obs" class="hidden space-y-3">
+                <label class="field max-w-sm">Clase de almacenamiento<select id="obsClass" class="input">
+                  <option value="standard">Estándar (obs.standard)</option>
+                  <option value="warm">Acceso poco frecuente (obs.warm)</option>
+                  <option value="cold">Archivo (obs.cold)</option>
+                </select></label>
+                <p class="text-xs text-slate-500">Huawei cotiza la clase de almacenamiento por hora y solo en modo «Por uso»; su API no acepta los GB. Añade aparte el almacenamiento y el tráfico que vayas a consumir.</p>
               </div>
             </section>
 

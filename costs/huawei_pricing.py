@@ -44,15 +44,19 @@ PRODUCT_CODES: Dict[str, Tuple[str, str, Optional[int]]] = {
     "evs": ("hws.service.type.ebs", "hws.resource.type.volume", 17),
     "ip": ("hws.service.type.vpc", "hws.resource.type.ip", None),
     "bandwidth": ("hws.service.type.vpc", "hws.resource.type.bandwidth", 15),
-    # Ancho de banda cobrado por TRÁFICO (spec 12_<tipo>, p. ej. 12_bgp): precio por GB, solo por uso.
-    "traffic": ("hws.service.type.vpc", "hws.resource.type.bandwidth", 15),
+    # Ancho de banda cobrado por TRÁFICO (spec 12_<tipo>): precio por GB; la plantilla oficial
+    # NO envía tamaño (el precio por GB no depende del límite en Mbps).
+    "traffic": ("hws.service.type.vpc", "hws.resource.type.bandwidth", None),
+    # OBS: la plantilla oficial cotiza la CLASE de almacenamiento (obs.standard/warm/cold) por
+    # hora (usage_factor Duration), sin tamaño. Solo pago por uso.
+    "obs_storage": ("hws.service.type.obs", "hws.resource.type.obs", None),
 }
 HOUR_MEASURE_ID = 4
 MONTH_PERIOD_TYPE = 2
 YEAR_PERIOD_TYPE = 3          # documentado en PeriodProductInfo.period_type (3 = año)
 MONEY_MEASURE_ID = 1
-# Unidad de uso "GB" para el tráfico (usage_factor "upflow"). PENDIENTE DE VALIDAR con una
-# cuenta real (ListMeasureUnits); si BSS lo rechaza, el componente queda "precio no disponible".
+# Unidad de uso "GB" para el tráfico (usage_factor "upflow"); confirmado en la plantilla
+# oficial "eip-flow" de Huawei Cloud (usage_measure_id=10).
 GB_MEASURE_ID = 10
 PERIODS = {"monthly": (MONTH_PERIOD_TYPE, "month"), "yearly": (YEAR_PERIOD_TYPE, "year")}
 
@@ -75,12 +79,9 @@ def _decimal(value: Any) -> Decimal:
 
 
 def _product_kwargs(component: Component, region: str) -> Dict[str, Any]:
-    if component.codes is not None:
-        service_type, resource_type, size_measure = component.codes
-    elif component.product in PRODUCT_CODES:
-        service_type, resource_type, size_measure = PRODUCT_CODES[component.product]
-    else:
+    if component.product not in PRODUCT_CODES:
         raise PricingDataError(f"sin códigos BSS confirmados para {component.product}")
+    service_type, resource_type, size_measure = PRODUCT_CODES[component.product]
     kwargs: Dict[str, Any] = {"id": "1", "cloud_service_type": service_type, "resource_type": resource_type,
                               "resource_spec": _resource_spec(component), "region": region, "subscription_num": 1}
     if size_measure is not None:
@@ -102,15 +103,7 @@ def quote_component(client: Any, *, project_id: str, region: str, component: Com
 
     now = now or datetime.now(timezone.utc)
     product = _product_kwargs(component, region)
-    if component.usage is not None:
-        # Cotización por uso con el factor de uso oficial (ListUsageTypes), p. ej. OBS.
-        factor, measure_id = component.usage
-        response = client.list_on_demand_resource_ratings(ListOnDemandResourceRatingsRequest(body=RateOnDemandReq(
-            project_id=project_id, inquiry_precision=1, product_infos=[DemandProductInfo(
-                usage_factor=factor, usage_value=1, usage_measure_id=measure_id, **product)])))
-        amount, measure = getattr(response, "official_website_amount", None), getattr(response, "measure_id", None)
-        period, detail, billing_mode = "gb", f"ListOnDemandResourceRatings ({factor}, 1 unidad)", "on_demand"
-    elif component.product == "traffic":
+    if component.product == "traffic":
         # Tráfico: siempre por uso, precio de 1 GB de salida.
         response = client.list_on_demand_resource_ratings(ListOnDemandResourceRatingsRequest(body=RateOnDemandReq(
             project_id=project_id, inquiry_precision=1, product_infos=[DemandProductInfo(

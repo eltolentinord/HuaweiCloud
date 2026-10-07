@@ -50,7 +50,7 @@ class TestItems(unittest.TestCase):
                                      "product": "eip", "config": {"ip_type": "5_sbgp", "bandwidth_mode": "traffic",
                                                                   "bandwidth_mbps": 50, "traffic_gb": 300}}, REGIONS)
         self.assertEqual([(c.product, c.spec, c.size) for c in traffic.components()],
-                         [("ip", "5_sbgp", 0), ("traffic", "12_sbgp", 50)])
+                         [("ip", "5_sbgp", 0), ("traffic", "12_sbgp", 0)])
         self.assertEqual(traffic.traffic_gb, 300)
         self.assertEqual(quotable([traffic])[(MX, "on_demand")][0].product, "traffic")   # tráfico: siempre por uso
         self.assertEqual(quotable([traffic])[(MX, "monthly")][0].product, "ip")
@@ -72,7 +72,7 @@ class TestPricing(CostCompareApiTestCase):
             store.store([q(MX, "ecs", "x1.2u.4g.linux", 0, "30.00"), q(MX, "evs", "GPSSD", 40, "4.00"),
                          q(MX, "ecs", "x1.2u.4g.linux", 0, "300.00", "yearly"), q(MX, "evs", "GPSSD", 40, "40.00", "yearly"),
                          q(MX, "ecs", "x1.2u.4g.linux", 0, "0.05", "on_demand"), q(MX, "evs", "GPSSD", 40, "0.01", "on_demand"),
-                         q(MX, "ip", "5_bgp", 0, "3.00"), q(MX, "traffic", "12_bgp", 5, "0.10", "on_demand", "gb")])
+                         q(MX, "ip", "5_bgp", 0, "3.00"), q(MX, "traffic", "12_bgp", 0, "0.10", "on_demand", "gb")])
             store.replace_flavors(MX, [Flavor("x1.2u.4g", 2, 4096, "computingv3", "x1", status="normal")], fetched_at=NOW)
         self.calc = f"/api/clients/{self.cid}/accounts/{self.aid}/calculator"
 
@@ -188,135 +188,73 @@ class TestPricing(CostCompareApiTestCase):
         self.assertEqual(self.call("POST", other, json=ecs_item()).status_code, 404)
 
 
-RDS_CODES = {"service": "hws.service.type.rds", "instance": "hws.resource.type.rds.vm",
-             "storage": "hws.resource.type.rds.volume"}
-OBS_CODES = {"service": "hws.service.type.obs", "resource": "hws.resource.type.obs", "usage": "storageSize"}
+def obs_item(storage_class="standard", mode="on_demand", duration=730):
+    return {"region": MX, "billing_mode": mode, "duration": duration, "quantity": 1, "product": "obs",
+            "config": {"storage_class": storage_class}}
 
 
-def rds_item(codes=RDS_CODES, region=MX, mode="monthly"):
-    return {"region": region, "billing_mode": mode, "duration": 2, "quantity": 1, "product": "rds",
-            "config": {"engine": "MySQL", "version": "8.0", "instance_mode": "ha", "spec_code": "rds.mysql.n1.large.2.ha",
-                       "storage_type": "CLOUDSSD", "storage_gb": 100, "codes": codes}}
+class TestObsAndRds(CostCompareApiTestCase):
+    """OBS usa los códigos oficiales de Huawei; RDS no se puede cotizar por API."""
 
-
-def obs_item():
-    return {"region": MX, "billing_mode": "monthly", "duration": 1, "quantity": 1, "product": "obs",
-            "config": {"storage_class": "STANDARD", "storage_gb": 500, "measure_id": 10, "codes": OBS_CODES}}
-
-
-class TestRdsAndObs(CostCompareApiTestCase):
     def setUp(self):
         super().setUp()
         self.calc = f"/api/clients/{self.cid}/accounts/{self.aid}/calculator"
 
-    def save_codes(self):
-        with session_scope(self.factory) as session:
-            store = PriceCatalog(session)
-            store.replace_bss_codes([{"kind": "service", "code": RDS_CODES["service"], "name": "RDS"},
-                                     {"kind": "resource", "code": RDS_CODES["instance"], "parent_code": RDS_CODES["service"]},
-                                     {"kind": "resource", "code": RDS_CODES["storage"], "parent_code": RDS_CODES["service"]},
-                                     {"kind": "service", "code": OBS_CODES["service"], "name": "OBS"},
-                                     {"kind": "resource", "code": OBS_CODES["resource"], "parent_code": OBS_CODES["service"]}],
-                                    fetched_at=NOW, kinds=("service", "resource"))
-            store.replace_bss_codes([{"kind": "usage", "code": "storageSize", "parent_code": OBS_CODES["resource"]}],
-                                    fetched_at=NOW, kinds=("usage",), parent=OBS_CODES["resource"])
+    def test_obs_uses_official_codes_and_is_on_demand_only(self):
+        item = item_from_payload(obs_item("warm"), REGIONS)
+        self.assertEqual([(c.product, c.spec, c.size) for c in item.components()],
+                         [("obs_storage", "obs.warm", 0)])
+        self.assertEqual(huawei_pricing.PRODUCT_CODES["obs_storage"],
+                         ("hws.service.type.obs", "hws.resource.type.obs", None))
+        for bad in (obs_item(mode="monthly", duration=1), obs_item(mode="yearly", duration=1),
+                    obs_item(storage_class="GLACIER")):
+            with self.subTest(bad=bad["config"]), self.assertRaises(ConfigurationError):
+                item_from_payload(bad, REGIONS)
+        self.assertEqual(self.call("POST", f"{self.calc}/quote", json=obs_item(mode="monthly", duration=1)).status_code, 422)
 
-    def test_components_use_confirmed_codes_only(self):
-        confirmed = {"service": {RDS_CODES["service"]}, "resource": {RDS_CODES["instance"], RDS_CODES["storage"]},
-                     "usage": set()}
-        item = item_from_payload(rds_item(), REGIONS, confirmed)
-        comps = item.components()
-        self.assertEqual([(c.product, c.spec, c.size, c.codes) for c in comps], [
-            ("rds", "rds.mysql.n1.large.2.ha", 0, (RDS_CODES["service"], RDS_CODES["instance"], None)),
-            ("rds_storage", "CLOUDSSD", 100, (RDS_CODES["service"], RDS_CODES["storage"], 17))])
-        unconfirmed = item_from_payload(rds_item(), REGIONS, {"service": set(), "resource": set(), "usage": set()})
-        self.assertIn("no está en la lista oficial", unconfirmed.components()[0].problem)
-        missing = item_from_payload(rds_item(codes={}), REGIONS, confirmed)
-        self.assertIn("faltan los códigos BSS", missing.components()[0].problem)
-        self.assertEqual(quotable([missing]), {})          # nunca se consulta a Huawei sin códigos confirmados
-        with self.assertRaises(ConfigurationError):
-            item_from_payload(dict(rds_item(), config=dict(rds_item()["config"], engine="Oracle")), REGIONS)
-
-    def test_quote_rds_and_obs_with_official_prices(self):
-        self.save_codes()
-        with session_scope(self.factory) as session:
-            PriceCatalog(session).store([q(MX, "rds", "rds.mysql.n1.large.2.ha", 0, "150.00"),
-                                         q(MX, "rds_storage", "CLOUDSSD", 100, "12.00"),
-                                         q(MX, "obs_storage", "STANDARD", 0, "0.02", "on_demand", "gb")])
-        rds = self.call("POST", f"{self.calc}/quote", json=rds_item()).json()
-        self.assertEqual(rds["total"], "324.00")                        # (150 + 12) × 2 meses
-        obs = self.call("POST", f"{self.calc}/quote", json=obs_item()).json()
-        self.assertEqual(obs["total"], "10.00")                         # 0.02 × 500 GB
-        self.assertTrue(any("OBS" in w for w in obs["warnings"]))
-        export = self.call("POST", f"{self.calc}/export", params={"format": "pdf"}, json={"items": [rds_item(), obs_item()]})
-        self.assertTrue(export.content.startswith(b"%PDF"))
-
-    def test_refresh_rds_catalog_and_flavors_endpoint(self):
-        class FakeRds:
-            def list_datastores(self, request):
-                return SimpleNamespace(data_stores=[SimpleNamespace(name="8.0"), SimpleNamespace(name="5.7")])
-
-            def list_flavors(self, request):
-                return SimpleNamespace(flavors=[
-                    SimpleNamespace(vcpus="2", ram=4, spec_code=f"rds.mysql.n1.large.2.ha", instance_mode="ha",
-                                    az_status={"mx-a": "normal"}),
-                    SimpleNamespace(vcpus="2", ram=4, spec_code="rds.mysql.n1.large.2", instance_mode="single",
-                                    az_status={"mx-a": "sellout"})])
-
-        with mock.patch("costs.huawei_pricing.default_rds_builder", lambda c, r, p: FakeRds()):
-            response = self.call("POST", f"{self.calc}/rds/refresh", params={"region": MX, "engine": "MySQL"})
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["flavors"], {"8.0": 2, "5.7": 2})
-        body = self.call("GET", f"{self.calc}/rds/flavors", params={"region": MX, "engine": "MySQL"}).json()
-        self.assertEqual((body["version"], body["versions"]), ("8.0", ["8.0", "5.7"]))
-        single = next(f for f in body["flavors"] if f["instance_mode"] == "single")
-        self.assertFalse(single["available"])
-        self.assertEqual(self.call("POST", f"{self.calc}/rds/refresh",
-                                   params={"region": HK, "engine": "MySQL"}).status_code, 422)   # sin Project
-        self.assertEqual(self.call("GET", f"{self.calc}/rds/flavors",
-                                   params={"region": MX, "engine": "Oracle"}).status_code, 422)
-
-    def test_refresh_bss_codes_and_usage(self):
-        class FakeBss:
-            def list_service_types(self, request):
-                items = [SimpleNamespace(service_type_code="hws.service.type.obs", service_type_name="OBS",
-                                         abbreviation="OBS")] if request.offset == 0 else []
-                return SimpleNamespace(service_types=items, total_count=1)
-
-            def list_resource_types(self, request):
-                return SimpleNamespace(resource_types=[SimpleNamespace(
-                    resource_type_code="hws.resource.type.obs", resource_type_name="Bucket",
-                    service_type_code="hws.service.type.obs")], total_count=1)
-
-            def list_usage_types(self, request):
-                return SimpleNamespace(usage_types=[SimpleNamespace(code="storageSize", name="Storage")], total_count=1)
-
-        with mock.patch("costs.huawei_pricing.default_bss_builder", lambda clients: FakeBss()):
-            self.assertEqual(self.call("POST", f"{self.calc}/bss-codes/refresh").json(), {"codes": 2})
-            usage = self.call("POST", f"{self.calc}/bss-codes/usage/refresh", params={"resource": "hws.resource.type.obs"})
-        self.assertEqual(usage.json(), {"resource": "hws.resource.type.obs", "codes": 1})
-        listed = self.call("GET", f"{self.calc}/bss-codes", params={"search": "obs", "service": "hws.service.type.obs",
-                                                                    "resource": "hws.resource.type.obs"}).json()
-        self.assertEqual([s["code"] for s in listed["services"]], ["hws.service.type.obs"])
-        self.assertEqual([u["code"] for u in listed["usages"]], ["storageSize"])
-        self.assertEqual(self.call("POST", f"{self.calc}/bss-codes/usage/refresh",
-                                   params={"resource": "hws.resource.type.nope"}).status_code, 422)
-
-    def test_obs_refresh_quotes_on_demand_with_usage_factor(self):
-        self.save_codes()
+    def test_obs_quote_is_hourly_without_size(self):
         seen = []
 
         class FakeBss:
             def list_on_demand_resource_ratings(self, request):
                 info = request.body.product_infos[0]
-                seen.append((info.usage_factor, info.usage_measure_id, info.cloud_service_type, info.resource_type))
+                seen.append((info.cloud_service_type, info.resource_type, info.resource_spec, info.usage_factor,
+                             info.usage_measure_id, getattr(info, "resource_size", None)))
                 return SimpleNamespace(currency="USD", official_website_amount=Decimal("0.02"), measure_id=1)
 
         with mock.patch("costs.huawei_pricing.default_bss_builder", lambda clients: FakeBss()):
             response = self.call("POST", f"{self.calc}/prices/refresh", json={"items": [obs_item()]})
         self.assertEqual(response.json()["stored"], 1)
-        self.assertEqual(seen, [("storageSize", 10, OBS_CODES["service"], OBS_CODES["resource"])])
-        self.assertEqual(self.call("POST", f"{self.calc}/quote", json=obs_item()).json()["total"], "10.00")
+        self.assertEqual(seen, [("hws.service.type.obs", "hws.resource.type.obs", "obs.standard",
+                                 "Duration", 4, None)])      # plantilla oficial: Duration, 1 h, sin tamaño
+        priced = self.call("POST", f"{self.calc}/quote", json=obs_item()).json()
+        self.assertEqual(priced["total"], "14.60")            # 0.02 × 730 h
+        self.assertTrue(any("por hora" in w for w in priced["warnings"]))
+
+    def test_rds_is_not_a_calculator_product(self):
+        rds = {"region": MX, "billing_mode": "monthly", "duration": 1, "quantity": 1, "product": "rds", "config": {}}
+        with self.assertRaises(ConfigurationError):
+            item_from_payload(rds, REGIONS)
+        self.assertEqual(self.call("POST", f"{self.calc}/quote", json=rds).status_code, 422)
+        self.assertNotIn("rds", self.call("GET", f"{self.calc}/options").json())
+
+    def test_rds_catalog_stays_informational_without_prices(self):
+        class FakeRds:
+            def list_datastores(self, request):
+                return SimpleNamespace(data_stores=[SimpleNamespace(name="8.0")])
+
+            def list_flavors(self, request):
+                return SimpleNamespace(flavors=[SimpleNamespace(
+                    vcpus="2", ram=4, spec_code="rds.mysql.n1.large.2.ha", instance_mode="ha",
+                    az_status={"mx-a": "normal"})])
+
+        with mock.patch("costs.huawei_pricing.default_rds_builder", lambda c, r, p: FakeRds()):
+            self.assertEqual(self.call("POST", f"{self.calc}/rds/refresh",
+                                       params={"region": MX, "engine": "MySQL"}).status_code, 200)
+        body = self.call("GET", f"{self.calc}/rds/flavors", params={"region": MX, "engine": "MySQL"}).json()
+        self.assertFalse(body["pricing_supported"])
+        self.assertNotIn("price", body["flavors"][0])
+        self.assertEqual(body["flavors"][0]["spec_code"], "rds.mysql.n1.large.2.ha")
 
 
 class TestQuoteComponentModes(unittest.TestCase):

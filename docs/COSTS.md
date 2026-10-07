@@ -120,6 +120,29 @@ Requisitos para consultar a BSS (pendientes de confirmar con la cuenta real):
 - Si un código de producto no es válido, la consulta falla de forma segura y se muestra
   el motivo.
 
+## Códigos de producto para la consulta de precios
+
+Los códigos que BSS exige (`cloud_service_type`, `resource_type`, `usage_factor`,
+`usage_measure_id`) están confirmados con las plantillas oficiales de Huawei Cloud incluidas en
+la skill `huawei-cloud-business-tf-support`
+(`scripts/bss/list_on_demand_resource_ratings.py` y `list_rate_on_period_detail.py`).
+
+| Componente | cloud_service_type | resource_type | Notas |
+|---|---|---|---|
+| ECS | `hws.service.type.ec2` | `hws.resource.type.vm` | spec `<flavor>.linux` / `.win` |
+| EVS | `hws.service.type.ebs` | `hws.resource.type.volume` | GB (`size_measure_id` 17) |
+| EIP (IP) | `hws.service.type.vpc` | `hws.resource.type.ip` | spec `5_bgp` / `5_sbgp` |
+| Ancho de banda | `hws.service.type.vpc` | `hws.resource.type.bandwidth` | spec `19_*`, Mbps (15) |
+| Tráfico | `hws.service.type.vpc` | `hws.resource.type.bandwidth` | spec `12_*`, `upflow` por GB (10), **sin tamaño** |
+| OBS | `hws.service.type.obs` | `hws.resource.type.obs` | spec `obs.standard` / `warm` / `cold`, `Duration` por hora, **sin tamaño**, solo pago por uso |
+
+Periodos de suscripción: `period_type` 2 = mes, 3 = año.
+
+**RDS no se puede cotizar**: no aparece en la matriz de servicios con consulta de precios de
+Huawei Cloud. Su catálogo de flavors (`/calculator/rds/flavors`) se conserva como información,
+sin precio. Otros servicios con códigos ya confirmados que podrían añadirse más adelante:
+NAT Gateway, SFS Turbo, ELB dedicado, VPC Endpoint y BMS.
+
 ## Endpoint BSS por sitio
 
 BSS (facturación, precios, costos) es global pero **cada sitio de Huawei Cloud tiene su

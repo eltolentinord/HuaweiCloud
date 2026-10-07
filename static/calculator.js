@@ -8,7 +8,7 @@
   const $ = (id) => document.getElementById(id);
   const LIST_KEY = "hc_calculator_list_v1";
   const st = { clientId: "", accountId: "", options: null, region: "", product: "ecs", flavor: "", disks: [],
-    seq: 0, timer: null, editing: null, list: loadList(), rds: null, rdsSpec: "", codes: { rds: {}, obs: {} } };
+    seq: 0, timer: null, editing: null, list: loadList() };
 
   /* ---------- utilidades ---------- */
   function esc(value) {
@@ -49,6 +49,12 @@
   }
   const json = async (path, options) => (await call(path, options)).json();
   const base = () => `/api/clients/${st.clientId}/accounts/${st.accountId}`;
+  function errorText(err) {
+    const d = err.detail && typeof err.detail === "object" ? err.detail : {};
+    const meta = [d.http_status ? `HTTP ${d.http_status}` : "", d.error_code ? `Código ${d.error_code}` : "",
+      d.request_id ? `Request ID ${d.request_id}` : "", d.accion_iam ? `Acción IAM ${d.accion_iam}` : ""].filter(Boolean).join(" · ");
+    return `${esc(err.message)}${meta ? `<div class="text-xs mt-1">${esc(meta)}</div>` : ""}`;
+  }
   const calc = () => `${base()}/calculator`;
   const regionName = (id) => { const r = st.options && st.options.regions.find((x) => x.id === id); return r ? (r.name || r.id) : id; };
   const modeInfo = (id) => st.options.modes.find((m) => m.id === id);
@@ -111,9 +117,6 @@
     renderFilters();
     renderFlavors();
     markDisks();
-    if (first) { $("rdsEngine").innerHTML = st.options.rds.engines.map((e) => `<option>${esc(e)}</option>`).join(""); }
-    if (st.product === "rds") await loadRds();
-    if (first) { await loadCodes("rds"); await loadCodes("obs"); }
     scheduleQuote();
   }
   function fillDuration() {
@@ -145,7 +148,12 @@
   document.querySelectorAll("[data-product]").forEach((b) => b.addEventListener("click", () => setProduct(b.dataset.product)));
   function setProduct(p) {
     st.product = p;
-    if (p === "rds" && st.options) loadRds().catch((e) => notify(esc(e.message)));
+    // OBS solo tiene precio de pago por uso en la API de Huawei Cloud.
+    if (p === "obs" && $("billingMode").value !== "on_demand") {
+      $("billingMode").value = "on_demand"; fillDuration();
+      loadOptions(false).catch((e) => notify(esc(e.message)));
+    }
+    $("billingMode").disabled = p === "obs";
     document.querySelectorAll("[data-product]").forEach((b) => { const on = b.dataset.product === p; b.classList.toggle("tab-active", on); b.setAttribute("aria-selected", on); });
     document.querySelectorAll("[data-panel]").forEach((el) => el.classList.toggle("hidden", el.dataset.panel !== p));
     scheduleQuote();
@@ -252,120 +260,6 @@
       traffic_gb: $(`${p}Mode`).value === "traffic" ? Number($(`${p}Traffic`).value) : 0 };
   }
 
-  /* ---------- RDS ---------- */
-  async function loadRds(version) {
-    const params = new URLSearchParams({ region: st.region, engine: $("rdsEngine").value || "MySQL", billing_mode: $("billingMode").value });
-    if (version || $("rdsVersion").value) params.set("version", version || $("rdsVersion").value);
-    st.rds = await json(`${calc()}/rds/flavors?${params}`);
-    $("rdsVersion").innerHTML = st.rds.versions.map((v) => `<option${v === st.rds.version ? " selected" : ""}>${esc(v)}</option>`).join("") || "<option value=''>Sin versiones consultadas</option>";
-    renderRds();
-  }
-  function renderRds() {
-    const mode = $("rdsMode").value;
-    const rows = (st.rds ? st.rds.flavors : []).filter((f) => f.instance_mode === mode);
-    const unit = { hour: "/h", month: "/mes", year: "/año" };
-    $("rdsFlavors").innerHTML = rows.map((f) => `<tr class="cursor-pointer ${f.spec_code === st.rdsSpec ? "bg-blue-50 dark:bg-blue-950/30" : ""}" data-rds="${esc(f.spec_code)}">
-        <td><input type="radio" name="rdsflavor" ${f.spec_code === st.rdsSpec ? "checked" : ""} aria-label="${esc(f.spec_code)}" /></td>
-        <td class="font-mono">${esc(f.spec_code)}</td><td class="text-right tabular-nums">${esc(f.vcpus)}</td><td class="text-right tabular-nums">${esc(f.ram_gb)} GB</td>
-        <td class="text-right">${f.price ? `<span class="tabular-nums">${esc(money(f.price.amount, f.price.currency))}<span class="text-slate-400">${unit[f.price.period] || ""}</span></span>` : '<span class="text-xs text-slate-400">Sin consultar</span>'}</td>
-        <td><span class="badge ${f.available ? "badge-green" : "badge-red"}">${f.available ? "Disponible" : "Agotado"}</span></td></tr>`).join("")
-      || `<tr><td colspan="6" class="py-6 text-center text-slate-500">${!st.rds || !st.rds.has_project ? "Sin Project en la cuenta: no se puede consultar RDS en esta región." : (st.rds.versions.length ? "No hay flavors de este tipo de instancia." : "Sin flavors de RDS consultados. Pulsa «Actualizar flavors RDS».")}</td></tr>`;
-    $("rdsMeta").textContent = st.rds && st.rds.updated_at ? `${rows.length} flavors · consultado ${new Date(st.rds.updated_at).toLocaleString()}` : "";
-    $("rdsSelected").textContent = st.rdsSpec || "—";
-  }
-  $("rdsEngine").addEventListener("change", () => { st.rdsSpec = ""; $("rdsVersion").innerHTML = ""; loadRds().then(scheduleQuote).catch((e) => notify(esc(e.message))); });
-  $("rdsVersion").addEventListener("change", () => { st.rdsSpec = ""; loadRds($("rdsVersion").value).then(scheduleQuote).catch((e) => notify(esc(e.message))); });
-  $("rdsMode").addEventListener("change", () => { st.rdsSpec = ""; renderRds(); scheduleQuote(); });
-  ["rdsStorage", "rdsGb", "obsClass", "obsGb"].forEach((id) => $(id).addEventListener("input", scheduleQuote));
-  $("rdsFlavors").addEventListener("click", (e) => { const r = e.target.closest("[data-rds]"); if (!r) return; st.rdsSpec = r.dataset.rds; renderRds(); scheduleQuote(); });
-  $("rdsRefresh").addEventListener("click", async () => {
-    $("rdsRefresh").disabled = true;
-    try {
-      const r = await json(`${calc()}/rds/refresh?region=${encodeURIComponent(st.region)}&engine=${encodeURIComponent($("rdsEngine").value)}`, { method: "POST" });
-      const count = Object.values(r.flavors).reduce((a, b) => a + b, 0);
-      const errs = (r.errors || []).map((e) => `<li>${esc(e.mensaje)}${e.accion_iam ? ` (acción IAM ${esc(e.accion_iam)})` : ""}</li>`).join("");
-      notify(`RDS ${esc(r.engine)}: ${count} flavors en ${Object.keys(r.flavors).length} versión(es).${errs ? `<ul class="mt-2 list-disc pl-5">${errs}</ul>` : ""}`, errs ? "info" : "ok");
-      await loadRds();
-    } catch (err) { notify(err.status === 403 ? "Tu rol no permite consultar a Huawei (requiere operador)." : errorText(err)); }
-    finally { $("rdsRefresh").disabled = false; }
-  });
-  function errorText(err) {
-    const d = err.detail && typeof err.detail === "object" ? err.detail : {};
-    const meta = [d.http_status ? `HTTP ${d.http_status}` : "", d.error_code ? `Código ${d.error_code}` : "", d.request_id ? `Request ID ${d.request_id}` : "", d.accion_iam ? `Acción IAM ${d.accion_iam}` : ""].filter(Boolean).join(" · ");
-    return `${esc(err.message)}${meta ? `<div class="text-xs mt-1">${esc(meta)}</div>` : ""}`;
-  }
-
-  /* ---------- códigos BSS (RDS / OBS) ---------- */
-  const box = (p) => document.querySelector(`[data-codes="${p}"]`);
-  function bestMatch(list, words) {
-    const scored = list.map((x) => ({ x, s: words.reduce((n, w) => n + ((x.code + " " + (x.name || "")).toLowerCase().includes(w) ? 1 : 0), 0) }));
-    scored.sort((a, b) => b.s - a.s);
-    return scored.length && scored[0].s ? scored[0].x.code : (list[0] ? list[0].code : "");
-  }
-  async function loadCodes(p, keep) {
-    const el = box(p);
-    const search = el.querySelector("[data-codes-search]").value.trim();
-    const service = keep ? el.querySelector("[data-codes-service]").value : "";
-    let data = await json(`${calc()}/bss-codes?${new URLSearchParams({ search, service })}`);
-    const sel = el.querySelector("[data-codes-service]");
-    sel.innerHTML = data.services.map((x) => `<option value="${esc(x.code)}">${esc(x.code)}${x.name ? ` — ${esc(x.name)}` : ""}</option>`).join("") || "<option value=''>Sin códigos consultados</option>";
-    if (service && data.services.some((x) => x.code === service)) sel.value = service;
-    else if (data.services.length) {
-      sel.value = bestMatch(data.services, [p]);
-      data = await json(`${calc()}/bss-codes?${new URLSearchParams({ search, service: sel.value })}`);
-    }
-    el.querySelector("[data-codes-state]").textContent = data.updated_at ? "" : "· sin consultar";
-    const words = { instance: ["vm", "instance", "instancia"], storage: ["volume", "storage", "disk", "almacen"], resource: ["storage", "obs", "bucket"] };
-    el.querySelectorAll("[data-codes-res]").forEach((r) => {
-      const prev = r.value;
-      r.innerHTML = data.resources.map((x) => `<option value="${esc(x.code)}">${esc(x.code)}${x.name ? ` — ${esc(x.name)}` : ""}</option>`).join("") || "<option value=''>—</option>";
-      r.value = data.resources.some((x) => x.code === prev) ? prev : bestMatch(data.resources, words[r.dataset.codesRes] || []);
-    });
-    if (p === "obs") await loadUsages();
-    readCodes(p);
-  }
-  async function loadUsages() {
-    const el = box("obs");
-    const resource = el.querySelector('[data-codes-res="resource"]').value;
-    const usage = el.querySelector("[data-codes-usage]");
-    if (!resource) { usage.innerHTML = "<option value=''>—</option>"; return; }
-    const data = await json(`${calc()}/bss-codes?${new URLSearchParams({ service: el.querySelector("[data-codes-service]").value, resource })}`);
-    const prev = usage.value;
-    usage.innerHTML = data.usages.map((x) => `<option value="${esc(x.code)}">${esc(x.code)}${x.name ? ` — ${esc(x.name)}` : ""}</option>`).join("") || "<option value=''>Sin tipos de uso consultados</option>";
-    usage.value = data.usages.some((x) => x.code === prev) ? prev : bestMatch(data.usages, ["storage", "capacity", "space"]);
-  }
-  function readCodes(p) {
-    const el = box(p);
-    const c = { service: el.querySelector("[data-codes-service]").value };
-    el.querySelectorAll("[data-codes-res]").forEach((r) => { c[r.dataset.codesRes] = r.value; });
-    if (p === "obs") c.usage = el.querySelector("[data-codes-usage]").value;
-    st.codes[p] = c;
-    scheduleQuote();
-  }
-  ["rds", "obs"].forEach((p) => {
-    const el = box(p);
-    el.querySelector("[data-codes-search]").addEventListener("change", () => loadCodes(p).catch((e) => notify(esc(e.message))));
-    el.querySelector("[data-codes-service]").addEventListener("change", () => loadCodes(p, true).catch((e) => notify(esc(e.message))));
-    el.querySelectorAll("[data-codes-res]").forEach((r) => r.addEventListener("change", () => (p === "obs" ? loadUsages() : Promise.resolve()).then(() => readCodes(p))));
-    const usage = el.querySelector("[data-codes-usage]"); if (usage) usage.addEventListener("change", () => readCodes(p));
-    const measure = el.querySelector("[data-codes-measure]"); if (measure) measure.addEventListener("input", scheduleQuote);
-    el.querySelector("[data-codes-refresh]").addEventListener("click", async (ev) => {
-      ev.target.disabled = true;
-      try { const r = await json(`${calc()}/bss-codes/refresh`, { method: "POST" }); notify(`${esc(r.codes)} códigos BSS oficiales guardados.`, "ok"); await loadCodes("rds"); await loadCodes("obs"); }
-      catch (err) { notify(err.status === 403 ? "Tu rol no permite consultar a Huawei (requiere operador)." : errorText(err)); }
-      finally { ev.target.disabled = false; }
-    });
-    const ub = el.querySelector("[data-usage-refresh]");
-    if (ub) ub.addEventListener("click", async () => {
-      const resource = el.querySelector('[data-codes-res="resource"]').value;
-      if (!resource) { notify("Elige primero un recurso.", "info"); return; }
-      ub.disabled = true;
-      try { const r = await json(`${calc()}/bss-codes/usage/refresh?resource=${encodeURIComponent(resource)}`, { method: "POST" }); notify(`${esc(r.codes)} tipos de uso guardados.`, "ok"); await loadUsages(); readCodes("obs"); }
-      catch (err) { notify(err.status === 403 ? "Tu rol no permite consultar a Huawei (requiere operador)." : errorText(err)); }
-      finally { ub.disabled = false; }
-    });
-  });
-
   /* ---------- ítem actual ---------- */
   function currentItem() {
     let config;
@@ -374,12 +268,8 @@
         data_disks: st.disks.map((d) => ({ volume_type: d.volume_type, size_gb: Number(d.size_gb) })), eip: $("ecsEip").checked ? eipConfig("ecsEip") : null };
     } else if (st.product === "evs") {
       config = { volume_type: $("evsType").value, size_gb: Number($("evsSize").value) };
-    } else if (st.product === "rds") {
-      config = { engine: $("rdsEngine").value, version: $("rdsVersion").value, instance_mode: $("rdsMode").value, spec_code: st.rdsSpec,
-        storage_type: $("rdsStorage").value, storage_gb: Number($("rdsGb").value), codes: st.codes.rds };
     } else if (st.product === "obs") {
-      config = { storage_class: $("obsClass").value, storage_gb: Number($("obsGb").value),
-        measure_id: Number(box("obs").querySelector("[data-codes-measure]").value) || 10, codes: st.codes.obs };
+      config = { storage_class: $("obsClass").value };
     } else {
       config = eipConfig("eip");
     }
@@ -391,7 +281,7 @@
   async function quote() {
     if (!st.accountId || !st.options) return;
     const item = currentItem();
-    if ((item.product === "ecs" && !item.config.flavor) || (item.product === "rds" && (!item.config.spec_code || !item.config.version))) {
+    if (item.product === "ecs" && !item.config.flavor) {
       $("quoteTotal").textContent = "—"; $("quoteSub").textContent = "Elige un flavor en la tabla."; $("quoteDetail").innerHTML = ""; return;
     }
     const seq = ++st.seq;
@@ -426,12 +316,12 @@
   }
   $("btnRefresh").addEventListener("click", () => {
     const item = currentItem();
-    if ((item.product === "ecs" && !item.config.flavor) || (item.product === "rds" && !item.config.spec_code)) { notify("Elige un flavor antes de consultar el precio.", "info"); return; }
+    if (item.product === "ecs" && !item.config.flavor) { notify("Elige un flavor antes de consultar el precio.", "info"); return; }
     refresh([item], $("btnRefresh"));
   });
   $("btnFlavorPrices").addEventListener("click", () => {
-    const flavors = visibleFlavors().filter((f) => f.available && !f.price).slice(0, 20);
-    if (!flavors.length) { notify("Los flavors visibles ya tienen precio o no hay ninguno disponible.", "info"); return; }
+    const flavors = visibleFlavors().filter((f) => f.available).slice(0, 20);
+    if (!flavors.length) { notify("No hay flavors disponibles en esta región.", "info"); return; }
     const items = flavors.map((f) => ({ region: st.region, billing_mode: $("billingMode").value, duration: 1, quantity: 1, product: "ecs",
       config: { flavor: f.flavor_id, os_type: $("ecsOs").value, system_disk: { volume_type: $("sysType").value, size_gb: Number($("sysSize").value) } } }));
     refresh(items, $("btnFlavorPrices"));
@@ -446,11 +336,22 @@
     } catch (err) { notify(err.status === 403 ? "Tu rol no permite consultar a Huawei (requiere operador)." : esc(err.message)); }
     finally { $("btnCatalog").disabled = false; }
   });
+  $("btnRefreshFlavors").addEventListener("click", async () => {
+    $("btnRefreshFlavors").disabled = true;
+    try {
+      const r = await json(`${calc()}/flavors/refresh?region=${encodeURIComponent(st.region)}`, { method: "POST" });
+      const errs = (r.failures || []).map((f) => `<li>${esc(f.region || "desconocida")}: ${esc(f.reason || f.error || "error")}${f.error_code ? ` (${esc(f.error_code)})` : ""}</li>`).join("");
+      const stored = Object.values(r.stored || {}).reduce((a, b) => a + b, 0);
+      notify(`${stored} flavors guardado(s).${errs ? `<ul class="mt-2 list-disc pl-5">${errs}</ul>` : ""}`, errs && !stored ? "info" : "ok");
+      await loadOptions(false);
+    } catch (err) { notify(err.status === 403 ? "Tu rol no permite consultar a Huawei (requiere operador)." : esc(err.message)); }
+    finally { $("btnRefreshFlavors").disabled = false; }
+  });
 
   /* ---------- lista de precios ---------- */
   $("btnAdd").addEventListener("click", async () => {
     const item = currentItem();
-    if ((item.product === "ecs" && !item.config.flavor) || (item.product === "rds" && !item.config.spec_code)) { notify("Elige un flavor antes de agregarlo.", "info"); return; }
+    if (item.product === "ecs" && !item.config.flavor) { notify("Elige un flavor antes de agregarlo.", "info"); return; }
     try { await json(`${calc()}/quote`, { method: "POST", body: JSON.stringify(item) }); }   // valida antes de agregar
     catch (err) { notify(esc(err.message)); return; }
     if (st.editing !== null) { st.list[st.editing] = item; st.editing = null; $("btnAdd").innerHTML = '<i data-lucide="list-plus" class="w-4 h-4"></i>Agregar a la lista'; }
@@ -461,7 +362,7 @@
   $("btnClearList").addEventListener("click", () => { if (st.list.length && confirmClear()) { st.list = []; saveList(); renderList(); } });
   function confirmClear() { return window.confirm ? window.confirm("¿Vaciar la lista de precios?") : true; }
 
-  const PRODUCT = { ecs: "Servidor (ECS)", evs: "Disco (EVS)", eip: "IP pública (EIP)", rds: "Base de datos (RDS)", obs: "Almacenamiento (OBS)" };
+  const PRODUCT = { ecs: "Servidor (ECS)", evs: "Disco (EVS)", eip: "IP pública (EIP)", obs: "Almacenamiento (OBS)" };
   async function renderList() {
     $("listCount").textContent = st.list.length || "";
     if (!st.list.length) { $("list").innerHTML = '<li class="text-sm text-slate-500">Agrega configuraciones para ver aquí el total.</li>'; $("listTotal").innerHTML = ""; return; }
@@ -500,10 +401,7 @@
       if (c.eip) setEip("ecsEip", c.eip);
       renderFlavors();
     } else if (item.product === "evs") { $("evsType").value = c.volume_type; $("evsSize").value = c.size_gb; }
-    else if (item.product === "rds") {
-      $("rdsEngine").value = c.engine; await loadRds(c.version); $("rdsMode").value = c.instance_mode; st.rdsSpec = c.spec_code;
-      $("rdsStorage").value = c.storage_type; $("rdsGb").value = c.storage_gb; renderRds();
-    } else if (item.product === "obs") { $("obsClass").value = c.storage_class; $("obsGb").value = c.storage_gb; }
+    else if (item.product === "obs") { $("obsClass").value = c.storage_class; }
     else setEip("eip", c);
     $("btnAdd").innerHTML = '<i data-lucide="save" class="w-4 h-4"></i>Guardar cambios'; icons();
     scheduleQuote();

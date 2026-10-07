@@ -7,9 +7,11 @@ Prefijo ``/api/clients/{client_id}/accounts/{account_id}/calculator``:
                              de la región con su precio oficial guardado (si lo hay)
 - ``POST /quote``            precio de UN ítem (ECS completo, EVS o EIP)
 - ``POST /list``             precios de la lista completa y su total (recalculado en el servidor)
+- ``POST /flavors/refresh``  trae los flavors ECS reales de Huawei para la región (o todas) [scans:run]
 - ``POST /prices/refresh``   consulta precios OFICIALES a Huawei (BSS) para los ítems   [scans:run]
 - ``POST /export``           la lista en ``xlsx``, ``pdf`` o ``csv`` (recalculada en el servidor)
-- ``GET  /rds/flavors``      flavors de RDS guardados (motor/versión/modo) con su precio oficial
+- ``GET  /rds/flavors``      flavors de RDS guardados (motor/versión/modo), SIN precio: Huawei no
+                             permite cotizar RDS por API (no está en su matriz de servicios con precio)
 - ``POST /rds/refresh``      consulta versiones y flavors de RDS a Huawei (ListDatastores/ListFlavors) [scans:run]
 - ``GET  /bss-codes``        códigos de servicio/recurso/uso de BSS guardados (para RDS/OBS)
 - ``POST /bss-codes/refresh``         consulta ListServiceTypes + ListResourceTypes        [scans:run]
@@ -38,15 +40,13 @@ from costs.calculator import (
     MAX_ITEMS,
     MODES,
     OBS_CLASSES,
-    RDS_ENGINES,
-    RDS_MODES,
-    RDS_STORAGE,
     CalcItem,
     item_from_payload,
     price_item,
     price_list,
     quotable,
 )
+from costs.huawei_pricing import RDS_ENGINES
 from costs.catalog import PriceCatalog
 from costs.configuration import DISK_TYPES, ConfigurationError
 from costs.flavor_names import disco
@@ -74,9 +74,8 @@ class ItemsIn(BaseModel):
 
 def _items(db: Session, payloads: List[Dict[str, Any]]) -> List[CalcItem]:
     known = [r.id for r in _regions(db)]
-    confirmed = PriceCatalog(db).bss_code_set()
     try:
-        return [item_from_payload(p, known, confirmed) for p in payloads]
+        return [item_from_payload(p, known) for p in payloads]
     except (ConfigurationError, ValueError) as exc:
         raise ValidationFailedError(str(exc)) from None
 
@@ -105,9 +104,7 @@ def options(client_id: uuid.UUID, account_id: uuid.UUID, region: Optional[str] =
         "modes": [{"id": k, **v} for k, v in MODES.items()],
         "disk_types": [{"id": d, "name": disco(d)} for d in DISK_TYPES],
         "max_items": MAX_ITEMS,
-        "rds": {"engines": list(RDS_ENGINES), "modes": list(RDS_MODES), "storage_types": list(RDS_STORAGE)},
         "obs": {"classes": list(OBS_CLASSES)},
-        "bss_codes_loaded": bool(PriceCatalog(db).bss_codes("service")),
     }
     if region:
         if region not in with_project:
@@ -150,6 +147,43 @@ def price_items(client_id: uuid.UUID, account_id: uuid.UUID, body: ItemsIn,
                 db: Session = Depends(get_db)) -> Dict[str, Any]:
     account = get_account(db, client_id, account_id)
     return price_list(_priced(db, account.id, _items(db, body.items)))
+
+
+@router.post("/flavors/refresh", dependencies=CALLS_HUAWEI)
+def refresh_flavors(client_id: uuid.UUID, account_id: uuid.UUID, region: Optional[str] = Query(None, max_length=64),
+                    db: Session = Depends(get_db), cipher: SecretCipher = Depends(get_cipher),
+                    actor: Principal = Depends(get_principal)) -> Dict[str, Any]:
+    """Trae los flavors ECS reales de Huawei Cloud para la región (o todas si no se especifica)."""
+    account = get_account(db, client_id, account_id)
+    regions = _regions(db)
+    region_ids = {r.id: r for r in regions}
+    if region:
+        if region not in region_ids:
+            raise ValidationFailedError("Región desconocida.")
+        regions = [region_ids[region]]
+
+    clients = _clients(db, cipher, client_id, account_id)
+    store = PriceCatalog(db)
+    stored, failures, now = {}, [], datetime.now(timezone.utc)
+
+    for r in regions:
+        project = project_for_region(db, account.id, r.id)
+        if project is None:
+            failures.append({"region": r.id, "reason": "Sin Project en la cuenta."})
+            continue
+        try:
+            flavors = huawei_pricing.fetch_flavors(clients, region=r.id, project_id=project.huawei_project_id)
+            count = store.replace_flavors(r.id, flavors, fetched_at=now)
+            stored[r.id] = count
+        except Exception as exc:
+            error = classify_exception(exc, service="ecs", region=r.id, secrets=clients.secrets)
+            failures.append({"region": r.id, "error": error.kind, "message": error.message,
+                           "error_code": error.error_code})
+
+    audit.record(db, actor, "catalog.refresh", client_id=client_id, account_id=account.id,
+                 details={"regions": list(stored.keys()),
+                         "fields": [f"flavors={sum(stored.values())}", f"errors={len(failures)}"]})
+    return {"stored": stored, "failures": failures}
 
 
 @router.post("/prices/refresh", dependencies=CALLS_HUAWEI)
@@ -212,8 +246,8 @@ def _engine(engine: str) -> str:
 @router.get("/rds/flavors")
 def rds_flavors(client_id: uuid.UUID, account_id: uuid.UUID, region: str = Query(..., max_length=64),
                 engine: str = Query(...), version: Optional[str] = Query(None, max_length=32),
-                billing_mode: str = Query("monthly", pattern="^(monthly|yearly|on_demand)$"),
                 db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Catálogo informativo de flavors de RDS (sin precio: Huawei no lo cotiza por API)."""
     account = get_account(db, client_id, account_id)
     if region not in {r.id for r in _regions(db)}:
         raise ValidationFailedError("Región desconocida.")
@@ -221,17 +255,15 @@ def rds_flavors(client_id: uuid.UUID, account_id: uuid.UUID, region: str = Query
     versions = catalog.rds_versions(region, _engine(engine))
     version = version if version in versions else (versions[0] if versions else None)
     rows = catalog.rds_flavors(region, engine, version) if version else []
-    flavors = []
-    for f in rows:
-        price = catalog.lookup(region=region, product="rds", spec=f.spec_code, billing_mode=billing_mode)
-        flavors.append({"spec_code": f.spec_code, "vcpus": f.vcpus, "ram_gb": float(str(f.ram_gb)),
-                        "instance_mode": f.instance_mode, "az_status": f.az_status or {},
-                        "available": any(v == "normal" for v in (f.az_status or {}).values()) or not f.az_status,
-                        "price": ({"amount": str(price.amount), "currency": price.currency, "period": price.period}
-                                  if price is not None else None)})
+    flavors = [{"spec_code": f.spec_code, "vcpus": f.vcpus, "ram_gb": float(str(f.ram_gb)),
+                "instance_mode": f.instance_mode, "az_status": f.az_status or {},
+                "available": any(v == "normal" for v in (f.az_status or {}).values()) or not f.az_status}
+               for f in rows]
     return {"region": region, "engine": engine, "versions": versions, "version": version,
             "has_project": project_for_region(db, account.id, region) is not None, "flavors": flavors,
-            "updated_at": max((f.fetched_at for f in rows), default=None)}
+            "updated_at": max((f.fetched_at for f in rows), default=None),
+            "pricing_supported": False,
+            "note": "Catálogo informativo: Huawei Cloud no permite consultar precios de RDS por API."}
 
 
 MAX_RDS_VERSIONS = 6

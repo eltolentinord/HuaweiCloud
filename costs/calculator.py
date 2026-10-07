@@ -12,10 +12,9 @@ Reglas (las mismas del resto de la plataforma; nada se inventa):
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Dict, List, Optional, Set, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from costs.catalog import PriceCatalog
 from costs.configuration import BANDWIDTH_MODES, DISK_TYPES, IP_TYPE_RE, Component, ConfigurationError
@@ -23,16 +22,15 @@ from costs.flavor_names import disco
 from costs.region_simulation import config_from_payload
 
 CENT = Decimal("0.01")
-PRODUCTS = ("ecs", "evs", "eip", "rds", "obs")
-RDS_ENGINES = ("MySQL", "PostgreSQL", "SQLServer")
-RDS_MODES = ("single", "ha", "replica")
-RDS_STORAGE = ("COMMON", "ULTRAHIGH", "CLOUDSSD", "ESSD", "LOCALSSD")
-OBS_CLASSES = ("STANDARD", "WARM", "COLD")
-SPEC_RE = re.compile(r"^[a-z0-9][a-z0-9._\-]{2,99}$")
-BSS_CODE_RE = re.compile(r"^hws\.[A-Za-z0-9._\-]{3,120}$")
-USAGE_CODE_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
-# Productos cotizados SIEMPRE por uso (precio por GB/unidad), sea cual sea el modo del ítem.
-USAGE_PRODUCTS = ("traffic", "obs_storage")
+# RDS no aparece en la matriz oficial de servicios con consulta de precios de Huawei Cloud:
+# no se puede cotizar por API y por eso no es un producto de la calculadora.
+PRODUCTS = ("ecs", "evs", "eip", "obs")
+# Clases de almacenamiento de OBS tal como las pide BSS (plantilla oficial "obs").
+OBS_CLASSES = ("standard", "warm", "cold")
+# El tráfico se cotiza SIEMPRE por uso (precio por GB), sea cual sea el modo del ítem.
+USAGE_PRODUCTS = ("traffic",)
+# OBS solo tiene precio de pago por uso en la API de Huawei.
+ON_DEMAND_ONLY = ("obs",)
 MODES: Dict[str, Dict[str, Any]] = {
     # duración: unidad, mínimo, máximo (los mismos rangos que ofrece la consola de Huawei Cloud)
     "monthly": {"label": "Mensual", "unit": "mes", "units": "meses", "min": 1, "max": 9, "period": "month"},
@@ -115,12 +113,8 @@ class CalcItem:
             return " · ".join(parts)
         if self.product == "evs":
             return f"{disco(c['volume_type'])} {c['size_gb']} GB"
-        if self.product == "rds":
-            modes = {"single": "instancia única", "ha": "primaria/en espera", "replica": "réplica de lectura"}
-            return (f"{c['engine']} {c['version']} · {c['spec_code']} ({modes[c['instance_mode']]}) · "
-                    f"almacenamiento {c['storage_type']} {c['storage_gb']} GB")
         if self.product == "obs":
-            return f"OBS {c['storage_class']} · {c['storage_gb']} GB"
+            return f"OBS {c['storage_class']}"
         return _eip_text(c)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -157,7 +151,7 @@ def _eip_components(eip: Dict[str, Any]) -> List[Component]:
     suffix = eip["ip_type"].split("_", 1)[1]
     parts = [Component("ip", eip["ip_type"], label=f"IP pública {eip['ip_type']}")]
     if eip["bandwidth_mode"] == "traffic":
-        parts.append(Component("traffic", f"12_{suffix}", size=eip["bandwidth_mbps"],
+        parts.append(Component("traffic", f"12_{suffix}",
                                label=f"Tráfico de salida (máx. {eip['bandwidth_mbps']} Mbps)"))
     else:
         parts.append(Component("bandwidth", f"19_{suffix}", size=eip["bandwidth_mbps"],
@@ -165,32 +159,8 @@ def _eip_components(eip: Dict[str, Any]) -> List[Component]:
     return parts
 
 
-def _codes(raw: Any, keys: Sequence[str], confirmed: Optional[Dict[str, Set[str]]]) -> Tuple[Dict[str, str], Optional[str]]:
-    """Códigos BSS elegidos para RDS/OBS. Deben existir en la lista oficial guardada (ListServiceTypes/
-    ListResourceTypes/ListUsageTypes); si no, el componente queda sin precio con el motivo."""
-    raw = raw if isinstance(raw, dict) else {}
-    codes: Dict[str, str] = {}
-    for key in keys:
-        value = str(raw.get(key) or "").strip()
-        pattern = USAGE_CODE_RE if key == "usage" else BSS_CODE_RE
-        if value and not pattern.match(value):
-            raise ConfigurationError(f"Código BSS no válido ({key}).")
-        codes[key] = value
-    if any(not codes[k] for k in keys):
-        return codes, "faltan los códigos BSS del producto: actualízalos desde Huawei y elígelos"
-    if confirmed is not None:
-        kind_of = {"service": "service", "usage": "usage"}
-        for key in keys:
-            if codes[key] not in confirmed.get(kind_of.get(key, "resource"), set()):
-                return codes, f"el código BSS {codes[key]} no está en la lista oficial consultada a Huawei"
-    return codes, None
-
-
-def item_from_payload(payload: Dict[str, Any], known_regions: Sequence[str],
-                      confirmed_codes: Optional[Dict[str, Set[str]]] = None) -> CalcItem:
-    """Valida un ítem de la calculadora y construye sus componentes.
-
-    ``confirmed_codes``: códigos BSS oficiales guardados (para RDS/OBS); ``None`` = no se comprueban."""
+def item_from_payload(payload: Dict[str, Any], known_regions: Sequence[str]) -> CalcItem:
+    """Valida un ítem de la calculadora y construye sus componentes."""
     if not isinstance(payload, dict):
         raise ConfigurationError("Ítem inválido.")
     region = str(payload.get("region") or "").strip()
@@ -205,6 +175,8 @@ def item_from_payload(payload: Dict[str, Any], known_regions: Sequence[str],
     product = str(payload.get("product") or "")
     if product not in PRODUCTS:
         raise ConfigurationError(f"Producto no válido ({', '.join(PRODUCTS)}).")
+    if product in ON_DEMAND_ONLY and mode != "on_demand":
+        raise ConfigurationError("OBS solo se cotiza por uso: elige el modo «Por uso».")
     raw = payload.get("config") or {}
     name = str(payload.get("name") or "").strip()[:80]
     traffic_gb = 0
@@ -226,42 +198,12 @@ def item_from_payload(payload: Dict[str, Any], known_regions: Sequence[str],
             comps += _eip_components(config["eip"])
             if config["eip"]["bandwidth_mode"] == "traffic":
                 traffic_gb = _int(raw["eip"].get("traffic_gb", 0), "Tráfico estimado (GB)", 0, MAX_TRAFFIC_GB)
-    elif product == "rds":
-        engine = str(raw.get("engine") or "")
-        if engine not in RDS_ENGINES:
-            raise ConfigurationError(f"Motor no válido ({', '.join(RDS_ENGINES)}).")
-        version = str(raw.get("version") or "").strip()
-        if not re.match(r"^[0-9][0-9A-Za-z._\-]{0,31}$", version):
-            raise ConfigurationError("Versión del motor no válida.")
-        mode_rds = str(raw.get("instance_mode") or "single")
-        if mode_rds not in RDS_MODES:
-            raise ConfigurationError("Tipo de instancia no válido (single, ha o replica).")
-        spec = str(raw.get("spec_code") or "").strip().lower()
-        if not SPEC_RE.match(spec):
-            raise ConfigurationError("Flavor de RDS no válido.")
-        storage_type = str(raw.get("storage_type") or "CLOUDSSD").strip().upper()
-        if storage_type not in RDS_STORAGE:
-            raise ConfigurationError(f"Almacenamiento no válido ({', '.join(RDS_STORAGE)}).")
-        storage_gb = _int(raw.get("storage_gb", 40), "Almacenamiento (GB)", 40, 4000)
-        codes, problem = _codes(raw.get("codes"), ("service", "instance", "storage"), confirmed_codes)
-        config = {"engine": engine, "version": version, "instance_mode": mode_rds, "spec_code": spec,
-                  "storage_type": storage_type, "storage_gb": storage_gb, "codes": codes}
-        comps = [Component("rds", spec, label=f"RDS {engine} {spec}", problem=problem,
-                           codes=(codes["service"], codes["instance"], None) if not problem else None),
-                 Component("rds_storage", storage_type, size=storage_gb,
-                           label=f"Almacenamiento RDS {storage_type} {storage_gb} GB", problem=problem,
-                           codes=(codes["service"], codes["storage"], 17) if not problem else None)]
     elif product == "obs":
-        storage_class = str(raw.get("storage_class") or "STANDARD").strip().upper()
+        storage_class = str(raw.get("storage_class") or "standard").strip().lower()
         if storage_class not in OBS_CLASSES:
             raise ConfigurationError(f"Clase de almacenamiento no válida ({', '.join(OBS_CLASSES)}).")
-        storage_gb = _int(raw.get("storage_gb", 100), "Almacenamiento (GB)", 1, 10_000_000)
-        measure_id = _int(raw.get("measure_id", 10), "Unidad de medida", 1, 1000)
-        codes, problem = _codes(raw.get("codes"), ("service", "resource", "usage"), confirmed_codes)
-        config = {"storage_class": storage_class, "storage_gb": storage_gb, "measure_id": measure_id, "codes": codes}
-        comps = [Component("obs_storage", storage_class, label=f"OBS {storage_class} {storage_gb} GB", problem=problem,
-                           codes=(codes["service"], codes["resource"], None) if not problem else None,
-                           usage=(codes["usage"], measure_id) if not problem else None)]
+        config = {"storage_class": storage_class}
+        comps = [Component("obs_storage", f"obs.{storage_class}", label=f"OBS {storage_class}")]
     elif product == "evs":
         volume_type = str(raw.get("volume_type") or "").strip().upper()
         if volume_type not in DISK_TYPES:
@@ -302,9 +244,6 @@ def price_line(catalog: PriceCatalog, item: CalcItem, component: Component) -> L
     if component.product == "traffic":
         line.usage = item.traffic_gb
         line.multiplier = Decimal(item.traffic_gb)
-    elif component.product == "obs_storage":
-        line.usage = item.config["storage_gb"]
-        line.multiplier = Decimal(item.config["storage_gb"])
     else:
         line.multiplier = Decimal(item.duration)
     line.subtotal = line.unit_amount * line.multiplier * component.quantity * item.quantity
@@ -329,8 +268,8 @@ def price_item(catalog: PriceCatalog, item: CalcItem, *, has_project: bool) -> D
     if any(l.component.product == "traffic" for l in lines) and not item.traffic_gb:
         warnings.append("Ancho de banda por tráfico: indica los GB estimados; con 0 GB su costo es 0.")
     if item.product == "obs":
-        warnings.append("OBS: Huawei no documenta la cotización de OBS por API. Se muestra el precio que BSS "
-                        "devuelve para 1 unidad del tipo de uso elegido × GB; valídalo con la consola.")
+        warnings.append("OBS: Huawei cotiza la clase de almacenamiento por hora, sin indicar GB. "
+                        "Añade aparte el almacenamiento y el tráfico que vayas a usar.")
     return {**item.as_dict(), "has_project": has_project, "lines": [l.as_dict() for l in lines],
             "total": _money(total), "currency": currency, "complete": total is not None, "reason": reason,
             "warnings": warnings, "_total": total}
@@ -357,5 +296,5 @@ def quotable(items: Sequence[CalcItem]) -> Dict[Tuple[str, str], List[Component]
                 continue
             key = (item.region, lookup_mode(c, item.billing_mode))
             wanted.setdefault(key, {})[(c.product, c.spec or "", c.size)] = Component(
-                c.product, c.spec, size=c.size, label=c.label, codes=c.codes, usage=c.usage)
+                c.product, c.spec, size=c.size, label=c.label)
     return {k: list(v.values()) for k, v in wanted.items()}

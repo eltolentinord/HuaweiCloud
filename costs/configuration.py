@@ -27,7 +27,8 @@ from db.models import InventoryResource
 
 SUPPORTED_ORIGINS = {"ecs.server": "ecs", "evs.volume": "evs", "eip.publicip": "eip"}
 OS_TYPES = ("linux", "windows")
-DISK_TYPES = ("SATA", "SAS", "GPSSD", "SSD", "ESSD", "GPSSD2", "ESSD2")
+# Specs oficiales de EVS en la API de precios de BSS (plantilla "evs" de Huawei Cloud).
+DISK_TYPES = ("SATA", "SAS", "GPSSD", "SSD", "ESSD", "GPSSD2.storage", "GPSSD2.iops", "GPSSD2.throughput")
 BANDWIDTH_MODES = ("bandwidth", "traffic")
 FLAVOR_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{1,62}$")
 IP_TYPE_RE = re.compile(r"^5_[a-z0-9]{2,16}$")
@@ -64,11 +65,6 @@ class Component:
     quantity: int = 1
     label: str = ""
     problem: Optional[str] = None   # por qué no se puede cotizar (sin inventar)
-    # Códigos BSS explícitos (servicio, recurso, size_measure_id) cuando no son los fijos de
-    # costs.huawei_pricing.PRODUCT_CODES (RDS/OBS: confirmados con ListServiceTypes/ListResourceTypes).
-    codes: Optional[Tuple[str, str, Optional[int]]] = None
-    # Cotización por uso (OBS): (usage_factor de ListUsageTypes, usage_measure_id).
-    usage: Optional[Tuple[str, int]] = None
 
 
 @dataclass
