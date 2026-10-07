@@ -38,7 +38,7 @@
   const SEVERITY = { red: 4, amber: 3, blue: 2, slate: 1, green: 0 };
   const state = { clients: [], client: null, accounts: [], accountId: "", projects: [], regions: [], eps: [],
     permissions: null, selection: { kind: "all" }, summary: null, busy: null, filter: "", showNewClient: false,
-    service: "", resources: null, tab: (location.hash || "#resumen").slice(1) };
+    service: "", resources: null, tab: (location.hash || "#resumen").slice(1), confirmDelete: false };
   const LIST_LIMIT = 25;
 
   /* ---------- utilidades ---------- */
@@ -301,6 +301,7 @@
     clearAlerts();
     state.selection = { kind: "all" };
     state.service = "";
+    state.confirmDelete = false;
     $("breadcrumb").innerHTML = `<a href="/clientes" data-home>Inicio</a>`;
     loadingView("client");
     try {
@@ -677,7 +678,19 @@
             <h2 class="page-title break-words">${esc(c.name)}</h2>
           </div>
           ${pill(st.tone, st.label)}
+          <button type="button" data-action="delete-client" class="btn-ghost btn-sm !text-red-600 hover:!bg-red-50 dark:hover:!bg-red-950/30 sm:ml-auto" title="Eliminar este cliente y todos sus datos">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>Eliminar</button>
         </div>
+        ${state.confirmDelete ? `<div class="mt-4 rounded-xl border border-red-200 dark:border-red-900 bg-red-50/60 dark:bg-red-950/20 px-4 py-3 flex flex-wrap items-center gap-3">
+          <i data-lucide="alert-triangle" class="w-5 h-5 text-red-600 dark:text-red-400 shrink-0"></i>
+          <p class="text-sm font-medium text-red-700 dark:text-red-300 flex-1 min-w-0">¿Eliminar <strong>${esc(c.name)}</strong> con todas sus cuentas, credenciales e inventario? Esta acción <strong>no se puede deshacer</strong>.</p>
+          <div class="flex gap-2 shrink-0">
+            <button type="button" data-action="cancel-delete" class="btn-secondary btn-sm" ${state.busy ? "disabled" : ""}>Cancelar</button>
+            <button type="button" data-action="confirm-delete" class="btn-sm flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold" ${state.busy ? "disabled" : ""}>
+              <i data-lucide="${state.busy && state.busy.action === 'confirm-delete' ? 'loader' : 'trash-2'}" class="w-4 h-4 ${state.busy && state.busy.action === 'confirm-delete' ? 'animate-spin' : ''}"></i>
+              ${state.busy && state.busy.action === 'confirm-delete' ? 'Eliminando…' : 'Sí, eliminar'}</button>
+          </div>
+        </div>` : ""}
         <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-end gap-3">
           ${accountSwitch}
           <div class="flex flex-wrap gap-2 ${accountSwitch ? "" : "w-full"} sm:ml-auto sm:w-auto">
@@ -729,6 +742,29 @@
     }
   }
 
+  async function deleteClient() {
+    if (!state.client || state.busy) return;
+    clearAlerts();
+    state.busy = { action: "confirm-delete", label: "Eliminando…" };
+    renderClient();
+    try {
+      await api(`/api/admin/clients/${state.client.id}`, { method: "DELETE" });
+      const name = state.client.name;
+      state.client = null;
+      state.confirmDelete = false;
+      state.clients = await api("/api/clients");
+      history.pushState(null, "", "/clientes");
+      loadPortfolio();
+      notify(`Cliente «${name}» eliminado correctamente.`, "ok");
+    } catch (err) {
+      state.confirmDelete = false;
+      notify(err.status === 403 ? "Tu rol no permite eliminar clientes (requiere administrador)." : err.message);
+    } finally {
+      state.busy = null;
+      if (state.client) renderClient();
+    }
+  }
+
   /* ---------- eventos ---------- */
   $("view").addEventListener("click", (event) => {
     const copy = event.target.closest("[data-copy]");
@@ -747,7 +783,14 @@
     const tab = event.target.closest("[data-account]");
     if (tab) { state.accountId = tab.dataset.account; state.selection = { kind: "all" }; state.service = ""; loadAccountData().catch((e) => notify(e.message)); return; }
     const action = event.target.closest("[data-action]");
-    if (action) { runAction(action.dataset.action); return; }
+    if (action) {
+      const act = action.dataset.action;
+      if (act === "delete-client") { state.confirmDelete = true; renderClient(); return; }
+      if (act === "cancel-delete") { state.confirmDelete = false; renderClient(); return; }
+      if (act === "confirm-delete") { deleteClient(); return; }
+      runAction(act);
+      return;
+    }
     const tile = event.target.closest("[data-service]");
     if (tile) {
       state.service = state.service === tile.dataset.service ? "" : tile.dataset.service;
