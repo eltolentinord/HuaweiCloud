@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Iniciar sesión · Huawei Cloud Inventory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } } };</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261007" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="h-full app-body font-sans antialiased flex items-center justify-center px-4">
+  <div class="w-full max-w-sm">
+    <!-- Logo / marca -->
+    <div class="flex flex-col items-center mb-8 gap-3">
+      <span class="brand-mark w-12 h-12 text-xl"><i data-lucide="cloud" class="w-6 h-6"></i></span>
+      <div class="text-center">
+        <p class="text-base font-bold text-slate-900 dark:text-white">Huawei Cloud Inventory</p>
+        <p class="text-sm text-slate-500">Inicia sesión para continuar</p>
+      </div>
+    </div>
+
+    <!-- Alerta de error -->
+    {% if error %}
+    <div class="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+      <i data-lucide="alert-circle" class="w-4 h-4 mt-0.5 shrink-0"></i>
+      <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <!-- Formulario -->
+    <form method="post" action="/login" class="card p-6 space-y-4">
+      <input type="hidden" name="next" value="{{ next }}" />
+
+      <label class="field">
+        Correo electrónico
+        <input type="email" name="email" class="input" placeholder="usuario@empresa.com"
+               autocomplete="email" required autofocus />
+      </label>
+
+      <label class="field">
+        Contraseña
+        <input type="password" name="password" class="input" placeholder="••••••••"
+               autocomplete="current-password" required />
+      </label>
+
+      <button type="submit" class="btn-primary w-full justify-center gap-2">
+        <i data-lucide="log-in" class="w-4 h-4"></i>
+        Continuar
+      </button>
+    </form>
+
+    <p class="mt-6 text-center text-xs text-slate-400">
+      Se enviará un código de verificación a tu correo.
+    </p>
+  </div>
+
+  <script>
+    lucide.createIcons();
+    // Tema oscuro
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.classList.add('dark');
+    }
+  </script>
+</body>
+</html>

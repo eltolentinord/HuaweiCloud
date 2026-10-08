@@ -77,7 +77,7 @@ class Client(TimestampMixin, Base):
 
 
 class User(TimestampMixin, Base):
-    """Usuario de la plataforma (el login llegará en una fase posterior)."""
+    """Usuario de la plataforma con login email+contraseña+OTP."""
 
     __tablename__ = "users"
 
@@ -86,13 +86,42 @@ class User(TimestampMixin, Base):
     display_name: Mapped[Optional[str]] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True,
                                             server_default=true())
+    password_hash: Mapped[Optional[str]] = mapped_column(Text)
+    otp_code: Mapped[Optional[str]] = mapped_column(String(10))
+    otp_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     client_roles: Mapped[List["UserClientRole"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+    sessions: Mapped[List["UserSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
 
     def __repr__(self) -> str:
         return f"User(id={self.id})"
+
+
+class UserSession(Base):
+    """Sesión activa de un usuario (token almacenado como SHA-256)."""
+
+    __tablename__ = "user_sessions"
+    __table_args__ = (Index("ix_user_sessions_token_hash", "token_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                          server_default="false")
+
+    user: Mapped[User] = relationship(back_populates="sessions")
 
 
 class UserClientRole(Base):
@@ -703,3 +732,194 @@ class ServerAuditRun(Base):
     error_kind: Mapped[Optional[str]] = mapped_column(String(32))
     error_message: Mapped[Optional[str]] = mapped_column(String(1000))
     requested_by: Mapped[Optional[str]] = mapped_column(String(200))
+
+
+# ============================================================================
+# Módulo Cloud Eye Auto-Diagnóstico
+# ============================================================================
+
+DIAGNOSTIC_INCIDENT_STATUSES = (
+    "alert_received", "validating", "pending_diagnosis", "connecting",
+    "analyzing", "generating_report", "report_available", "failed",
+    "no_server", "recovered",
+)
+IN_PROGRESS_STATUSES: frozenset = frozenset({
+    "alert_received", "validating", "pending_diagnosis",
+    "connecting", "analyzing", "generating_report",
+})
+
+
+class CesAlarmEvent(Base):
+    """Evento de alarma CES recibido desde SMN (webhook). Nunca se borra."""
+
+    __tablename__ = "ces_alarm_events"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_ces_alarm_events_idempotency_key"),
+        Index("ix_ces_alarm_events_account_fired", "account_id", "fired_at"),
+        Index("ix_ces_alarm_events_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("cloud_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    alarm_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    alarm_name: Mapped[Optional[str]] = mapped_column(String(500))
+    namespace: Mapped[Optional[str]] = mapped_column(String(128))
+    metric_name: Mapped[Optional[str]] = mapped_column(String(128))
+    threshold: Mapped[Optional[object]] = mapped_column(Numeric(20, 8))
+    observed_value: Mapped[Optional[object]] = mapped_column(Numeric(20, 8))
+    alarm_level: Mapped[Optional[int]] = mapped_column(Integer)
+    resource_id: Mapped[Optional[str]] = mapped_column(String(255))
+    alarm_status: Mapped[Optional[str]] = mapped_column(String(64))
+    fired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_event_safe: Mapped[Optional[dict]] = mapped_column(JSONType)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="received", server_default="received"
+    )
+    # diagnostic_id apunta al incidente asociado; se pone NULL cuando el incidente se elimina
+    diagnostic_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+
+
+class DiagnosticIncident(TimestampMixin, Base):
+    """Incidente de diagnóstico generado a partir de un evento de alarma CES."""
+
+    __tablename__ = "diagnostic_incidents"
+    __table_args__ = (
+        CheckConstraint(_in("status", DIAGNOSTIC_INCIDENT_STATUSES), name="status"),
+        Index("ix_diagnostic_incidents_client_created", "client_id", "created_at"),
+        Index("ix_diagnostic_incidents_account_created", "account_id", "created_at"),
+        Index("ix_diagnostic_incidents_status", "status"),
+        Index("ix_diagnostic_incidents_server", "server_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    client_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("cloud_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    event_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("ces_alarm_events.id", ondelete="SET NULL"), nullable=True
+    )
+    server_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
+    )
+    ecs_name: Mapped[str] = mapped_column(
+        String(512), nullable=False, default="", server_default=""
+    )
+    ecs_instance_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="", server_default=""
+    )
+    ecs_ip: Mapped[Optional[str]] = mapped_column(String(128))
+    region: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    project_id_hw: Mapped[Optional[str]] = mapped_column(String(64))
+    enterprise_project_id: Mapped[Optional[str]] = mapped_column(String(64))
+    alarm_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="unknown", server_default="unknown"
+    )
+    metric_name: Mapped[Optional[str]] = mapped_column(String(128))
+    threshold: Mapped[Optional[object]] = mapped_column(Numeric(20, 8))
+    observed_value: Mapped[Optional[object]] = mapped_column(Numeric(20, 8))
+    severity: Mapped[Optional[int]] = mapped_column(Integer)
+    alarm_fired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="alert_received", server_default="alert_received"
+    )
+    possible_cause: Mapped[Optional[str]] = mapped_column(Text)
+    confidence: Mapped[Optional[str]] = mapped_column(String(16))
+    pdf_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    pdf_name: Mapped[Optional[str]] = mapped_column(String(255))
+    report_json: Mapped[Optional[dict]] = mapped_column(JSONType)
+    reviewed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    error_kind: Mapped[Optional[str]] = mapped_column(String(32))
+    error_message_safe: Mapped[Optional[str]] = mapped_column(Text)
+
+    commands: Mapped[List["DiagnosticCommand"]] = relationship(
+        back_populates="incident", cascade="all, delete-orphan", passive_deletes=True
+    )
+    evidence: Mapped[List["DiagnosticEvidence"]] = relationship(
+        back_populates="incident", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class DiagnosticCommand(Base):
+    """Comando SSH ejecutado durante un diagnóstico (solo lectura; shell=False)."""
+
+    __tablename__ = "diagnostic_commands"
+    __table_args__ = (
+        Index("ix_diagnostic_commands_incident_seq", "incident_id", "sequence"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("diagnostic_incidents.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    command: Mapped[str] = mapped_column(String(255), nullable=False)
+    args: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    exit_code: Mapped[Optional[int]] = mapped_column(Integer)
+    stdout_safe: Mapped[Optional[str]] = mapped_column(Text)
+    stderr_safe: Mapped[Optional[str]] = mapped_column(Text)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    incident: Mapped["DiagnosticIncident"] = relationship(back_populates="commands")
+
+
+class DiagnosticEvidence(Base):
+    """Evidencia estructurada extraída de un diagnóstico."""
+
+    __tablename__ = "diagnostic_evidence"
+    __table_args__ = (
+        Index("ix_diagnostic_evidence_incident", "incident_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("diagnostic_incidents.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    summary_safe: Mapped[Optional[str]] = mapped_column(Text)
+    data_json: Mapped[Optional[dict]] = mapped_column(JSONType)
+    relevance_score: Mapped[Optional[int]] = mapped_column(Integer)
+
+    incident: Mapped["DiagnosticIncident"] = relationship(back_populates="evidence")
+
+
+class DiagnosticAuditLog(Base):
+    """Registro permanente de acciones sobre diagnósticos (sobrevive al borrado del incidente)."""
+
+    __tablename__ = "diagnostic_audit_logs"
+    __table_args__ = (
+        Index("ix_diagnostic_audit_logs_account", "account_id"),
+        Index("ix_diagnostic_audit_logs_performed_at", "performed_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Sin FK a diagnostic_incidents: sobrevive al borrado del incidente
+    diagnostic_id_original: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    incident_number: Mapped[Optional[str]] = mapped_column(String(64))
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    server_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    server_name: Mapped[Optional[str]] = mapped_column(String(255))
+    ecs_name: Mapped[Optional[str]] = mapped_column(String(512))
+    action: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="diagnostic_deleted"
+    )
+    performed_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    performed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_safe: Mapped[Optional[dict]] = mapped_column(JSONType)

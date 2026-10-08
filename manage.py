@@ -223,6 +223,69 @@ def cmd_worker(args) -> None:
         print("Worker detenido")
 
 
+def cmd_user(args) -> None:
+    from db.models import User
+    from core.user_auth import hash_password
+
+    with session_scope() as session:
+        if args.action == "create":
+            email_lower = args.email.strip().lower()
+            existing = session.scalars(
+                __import__("sqlalchemy", fromlist=["select"]).select(User).where(User.email == email_lower)
+            ).first()
+            if existing:
+                raise SystemExit(f"Error: ya existe un usuario con el correo {email_lower}")
+            password = getpass.getpass("Contraseña: ")
+            confirm = getpass.getpass("Confirmar contraseña: ")
+            if password != confirm:
+                raise SystemExit("Error: las contraseñas no coinciden.")
+            if len(password) < 8:
+                raise SystemExit("Error: la contraseña debe tener al menos 8 caracteres.")
+            user = User(
+                email=email_lower,
+                display_name=args.name or email_lower.split("@")[0],
+                password_hash=hash_password(password),
+                is_active=True,
+            )
+            session.add(user)
+            session.flush()
+            print(f"Usuario creado: {user.id}  {user.email}  display={user.display_name}")
+        elif args.action == "set-password":
+            email_lower = args.email.strip().lower()
+            user = session.scalars(
+                __import__("sqlalchemy", fromlist=["select"]).select(User).where(User.email == email_lower)
+            ).first()
+            if not user:
+                raise SystemExit(f"Error: usuario no encontrado: {email_lower}")
+            password = getpass.getpass("Nueva contraseña: ")
+            confirm = getpass.getpass("Confirmar contraseña: ")
+            if password != confirm:
+                raise SystemExit("Error: las contraseñas no coinciden.")
+            if len(password) < 8:
+                raise SystemExit("Error: la contraseña debe tener al menos 8 caracteres.")
+            user.password_hash = hash_password(password)
+            print(f"Contraseña actualizada para {email_lower}")
+        else:
+            for user in session.scalars(__import__("sqlalchemy", fromlist=["select"]).select(User)).all():
+                status = "activo" if user.is_active else "inactivo"
+                print(f"{user.id}  {user.email:<40} {status:<8} {user.display_name or ''}")
+
+
+def cmd_worker_diagnostics(args) -> None:
+    from diagnostics import worker as dworker
+
+    factory, cipher = get_session_factory(), FernetKeyring.from_env()
+    if args.once:
+        report = dworker.run_once(factory, cipher)
+        print(f"procesados={report.processed} sin_servidor={report.skipped_no_server} "
+              f"errores={report.errors}")
+        return
+    try:
+        dworker.run_forever(factory, cipher, poll_seconds=args.poll)
+    except KeyboardInterrupt:
+        print("Worker de diagnósticos detenido")
+
+
 def cmd_maintenance(args) -> None:
     from scanning.maintenance import prune
 
@@ -342,6 +405,23 @@ def build_parser() -> argparse.ArgumentParser:
     update = server_audit_sub.add_parser("script-update", help="reemplaza server-audit.sh por una versión nueva")
     update.add_argument("--file", required=True, help="ruta del server-audit.sh nuevo")
     server_audit.set_defaults(func=cmd_server_audit)
+
+    user = sub.add_parser("user", help="gestión de usuarios del portal")
+    user_sub = user.add_subparsers(dest="action", required=True)
+    ucreate = user_sub.add_parser("create", help="crea un usuario con contraseña")
+    ucreate.add_argument("email")
+    ucreate.add_argument("--name", help="nombre visible (por defecto: parte local del correo)")
+    user_sub.add_parser("list", help="lista todos los usuarios")
+    usetpw = user_sub.add_parser("set-password", help="cambia la contraseña de un usuario")
+    usetpw.add_argument("email")
+    user.set_defaults(func=cmd_user)
+
+    worker_diag = sub.add_parser("worker-diagnostics",
+                                 help="procesa diagnósticos CES en cola (proceso aparte)")
+    worker_diag.add_argument("--once", action="store_true", help="un solo ciclo y termina")
+    worker_diag.add_argument("--poll", type=int, default=30, help="segundos entre ciclos")
+    worker_diag.set_defaults(func=cmd_worker_diagnostics)
+
     return parser
 
 
