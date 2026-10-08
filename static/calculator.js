@@ -94,7 +94,8 @@
         st.creds = { ak, sk, projectId: r.project_id, region };
         saveCreds(st.creds);
         renderCredsPanel();
-        if (!silent) notify(`Conectado a Huawei Cloud. Proyecto: <code class="font-mono">${esc(r.project_id)}</code>`, "ok");
+        if (!silent) notify(`Conectado · cargando catálogo desde Huawei Cloud…`, "info");
+        await autoRefreshAfterConnect(silent);
         return true;
       } else {
         if (!silent) notify(`No se pudo conectar: ${esc(r.error)}`);
@@ -103,6 +104,49 @@
     } catch (err) {
       if (!silent) notify(`Error al conectar: ${esc(err.message)}`);
       return false;
+    }
+  }
+
+  async function autoRefreshAfterConnect(silent) {
+    if (!st.creds || !st.region) return;
+    const creds = credsPayload();
+    let flavors = 0, prices = 0, errs = [];
+    try {
+      const rc = await json(`/api/calculator/catalog/refresh?region=${encodeURIComponent(st.region)}`,
+        { method: "POST", body: JSON.stringify(creds) });
+      flavors = rc.flavors ?? 0;
+      errs = rc.errors || [];
+    } catch (e) { errs.push({ servicio: "catalog", mensaje: e.message }); }
+
+    await loadOptions(false);
+
+    if (st.product !== "obs") {
+      try {
+        const item = currentItem();
+        const itemsForRefresh = st.product === "ecs" && !item.config.flavor
+          ? (st.options.flavors || []).filter((f) => f.available).slice(0, 10).map((f) => ({
+              region: st.region, billing_mode: $("billingMode").value, duration: 1, quantity: 1, product: "ecs",
+              config: { flavor: f.flavor_id, os_type: $("ecsOs").value,
+                        system_disk: { volume_type: $("sysType").value, size_gb: 40 } }
+            }))
+          : [item];
+        if (itemsForRefresh.length) {
+          const rp = await json(`/api/calculator/prices/refresh`,
+            { method: "POST", body: JSON.stringify(Object.assign({ items: itemsForRefresh }, creds)) });
+          prices = rp.stored || 0;
+          errs = errs.concat(rp.failures || []);
+        }
+      } catch (e) { errs.push({ servicio: "prices", mensaje: e.message }); }
+    }
+
+    await loadOptions(false);
+    renderList();
+
+    if (!silent) {
+      const errHtml = errs.length
+        ? `<ul class="mt-1 list-disc pl-4 text-xs">${errs.map((e) => `<li>${esc(e.servicio || "")}: ${esc(e.mensaje || e.reason || "error")}</li>`).join("")}</ul>` : "";
+      const tone = errs.length && !flavors && !prices ? "error" : errs.length ? "info" : "ok";
+      notify(`${flavors} flavors y ${prices} precio(s) cargados directamente desde la API de Huawei Cloud.${errHtml}`, tone);
     }
   }
   const modeInfo = (id) => st.options.modes.find((m) => m.id === id);
@@ -208,9 +252,10 @@
   $("region").addEventListener("change", () => {
     st.region = $("region").value; st.flavor = "";
     if (STANDALONE && st.creds && st.creds.ak) {
-      tryConnect(st.creds.ak, st.creds.sk || "", st.region, true).catch(() => {});
+      tryConnect(st.creds.ak, st.creds.sk || "", st.region, false).catch(() => {});
+    } else {
+      loadOptions(false).catch((e) => notify(esc(e.message)));
     }
-    loadOptions(false).catch((e) => notify(esc(e.message)));
   });
   $("billingMode").addEventListener("change", () => { fillDuration(); loadOptions(false).catch((e) => notify(esc(e.message))); });
   $("ecsOs").addEventListener("change", () => loadOptions(false).catch((e) => notify(esc(e.message))));
@@ -510,10 +555,14 @@
   if (STANDALONE) {
     loadOptions(true).then(() => {
       renderCredsPanel();
-      if (st.creds && st.creds.ak && st.creds.sk && st.creds.region !== st.region) {
-        tryConnect(st.creds.ak, st.creds.sk, st.region, true).catch(() => {});
+      if (st.creds && st.creds.ak && st.creds.sk) {
+        // on page load: always reconnect and refresh data silently (no toast)
+        tryConnect(st.creds.ak, st.creds.sk, st.region, true)
+          .catch(() => {})
+          .then(() => renderList());
+      } else {
+        renderList();
       }
-      renderList();
     }).catch((e) => notify(esc(e.message)));
   } else {
     loadClients().catch((e) => notify(esc(e.message)));
