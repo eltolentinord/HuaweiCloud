@@ -189,9 +189,9 @@ def item_from_payload(payload: Dict[str, Any], known_regions: Sequence[str]) -> 
                                                  for d in sim.data_disks], "eip": None}
         comps = [Component("ecs", f"{sim.flavor}.{sim.os_type}", label=f"ECS {sim.flavor} ({sim.os_type})"),
                  Component("evs", sim.system_disk.volume_type, size=sim.system_disk.size_gb,
-                           label=f"Disco de sistema {sim.system_disk.volume_type} {sim.system_disk.size_gb} GB")]
+                           label=f"Disco de sistema {disco(sim.system_disk.volume_type)} {sim.system_disk.size_gb} GB")]
         comps += [Component("evs", d.volume_type, size=d.size_gb,
-                            label=f"Disco de datos {i} {d.volume_type} {d.size_gb} GB")
+                            label=f"Disco de datos {i} {disco(d.volume_type)} {d.size_gb} GB")
                   for i, d in enumerate(sim.data_disks, start=1)]
         if raw.get("eip"):
             config["eip"] = _eip(raw["eip"])
@@ -210,7 +210,7 @@ def item_from_payload(payload: Dict[str, Any], known_regions: Sequence[str]) -> 
             raise ConfigurationError(f"Tipo de disco no válido (usa {', '.join(DISK_TYPES)}).")
         size = _int(raw.get("size_gb"), "Tamaño (GB)", 10, 32768)
         config = {"volume_type": volume_type, "size_gb": size}
-        comps = [Component("evs", volume_type, size=size, label=f"Disco {volume_type} {size} GB")]
+        comps = [Component("evs", volume_type, size=size, label=f"Disco {disco(volume_type)} {size} GB")]
     else:
         config = _eip(raw)
         comps = _eip_components(config)

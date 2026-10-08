@@ -7,6 +7,7 @@
 
   const $ = (id) => document.getElementById(id);
   const LIST_KEY = "hc_calculator_list_v1";
+  const STANDALONE = !!(window._CALC_STANDALONE);
   const st = { clientId: "", accountId: "", options: null, region: "", product: "ecs", flavor: "", disks: [],
     seq: 0, timer: null, editing: null, list: loadList() };
 
@@ -48,14 +49,14 @@
     return response;
   }
   const json = async (path, options) => (await call(path, options)).json();
-  const base = () => `/api/clients/${st.clientId}/accounts/${st.accountId}`;
+  const base = () => STANDALONE ? "" : `/api/clients/${st.clientId}/accounts/${st.accountId}`;
   function errorText(err) {
     const d = err.detail && typeof err.detail === "object" ? err.detail : {};
     const meta = [d.http_status ? `HTTP ${d.http_status}` : "", d.error_code ? `Código ${d.error_code}` : "",
       d.request_id ? `Request ID ${d.request_id}` : "", d.accion_iam ? `Acción IAM ${d.accion_iam}` : ""].filter(Boolean).join(" · ");
     return `${esc(err.message)}${meta ? `<div class="text-xs mt-1">${esc(meta)}</div>` : ""}`;
   }
-  const calc = () => `${base()}/calculator`;
+  const calc = () => STANDALONE ? "/api/calculator" : `${base()}/calculator`;
   const regionName = (id) => { const r = st.options && st.options.regions.find((x) => x.id === id); return r ? (r.name || r.id) : id; };
   const modeInfo = (id) => st.options.modes.find((m) => m.id === id);
 
@@ -112,7 +113,7 @@
       renderEipFields();
     }
     $("region").value = st.region;
-    $("regionNote").innerHTML = st.options.has_project ? ""
+    $("regionNote").innerHTML = (st.options.has_project || STANDALONE) ? ""
       : '<span class="text-amber-700 dark:text-amber-400">Sin Project en la cuenta para esta región: Huawei no permite cotizarla con esta cuenta.</span>';
     renderFilters();
     renderFlavors();
@@ -179,7 +180,7 @@
   function renderFlavors() {
     const all = st.options.flavors || [];
     if (!all.length) {
-      $("ecsFlavors").innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-500">${st.options.has_project ? "Sin catálogo de flavors consultado para esta región. Pulsa «Actualizar catálogo»." : "Sin Project en la cuenta: no se puede consultar el catálogo de esta región."}</td></tr>`;
+      $("ecsFlavors").innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-500">${(st.options.has_project || STANDALONE) ? "Sin catálogo de flavors para esta región. Usa la vista de cliente para actualizar el catálogo." : "Sin Project en la cuenta: no se puede consultar el catálogo de esta región."}</td></tr>`;
       $("ecsFlavorMeta").textContent = "";
       $("ecsSelected").textContent = st.flavor || "—";
       return;
@@ -326,11 +327,14 @@
       config: { flavor: f.flavor_id, os_type: $("ecsOs").value, system_disk: { volume_type: $("sysType").value, size_gb: Number($("sysSize").value) } } }));
     refresh(items, $("btnFlavorPrices"));
   });
+  const catalogRefreshUrl = () => STANDALONE
+    ? `/api/calculator/catalog/refresh?region=${encodeURIComponent(st.region)}`
+    : `${base()}/cost-compare/catalog/refresh?region=${encodeURIComponent(st.region)}`;
   $("btnCatalog").addEventListener("click", async () => {
     $("btnCatalog").disabled = true;
     try {
-      const r = await json(`${base()}/cost-compare/catalog/refresh?region=${encodeURIComponent(st.region)}`, { method: "POST" });
-      const errs = (r.errors || []).map((e) => `<li>${esc(String(e.servicio).toUpperCase())}: ${esc(e.mensaje)}${e.accion_iam ? ` (acción IAM ${esc(e.accion_iam)})` : ""}${e.request_id ? ` · Request ID ${esc(e.request_id)}` : ""}</li>`).join("");
+      const r = await json(catalogRefreshUrl(), { method: "POST" });
+      const errs = (r.errors || []).map((e) => `<li>${esc(String(e.servicio || "").toUpperCase())}: ${esc(e.mensaje || e.message || "error")}${e.accion_iam ? ` (acción IAM ${esc(e.accion_iam)})` : ""}${e.request_id ? ` · Request ID ${esc(e.request_id)}` : ""}</li>`).join("");
       notify(`Catálogo actualizado: ${r.flavors ?? 0} flavors, ${r.volume_types ?? 0} tipos de disco.${errs ? `<ul class="mt-2 list-disc pl-5">${errs}</ul>` : ""}`, errs ? "info" : "ok");
       await loadOptions(false);
     } catch (err) { notify(err.status === 403 ? "Tu rol no permite consultar a Huawei (requiere operador)." : esc(err.message)); }
@@ -428,5 +432,9 @@
 
   renderDisks();
   icons();
-  loadClients().catch((e) => notify(esc(e.message)));
+  if (STANDALONE) {
+    loadOptions(true).then(renderList).catch((e) => notify(esc(e.message)));
+  } else {
+    loadClients().catch((e) => notify(esc(e.message)));
+  }
 })();

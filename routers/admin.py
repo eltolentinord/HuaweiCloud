@@ -30,6 +30,8 @@ from routers.cost_compare_api import router as cost_compare_api_router
 from routers.calculator_api import router as calculator_api_router
 from routers.servers_api import router as servers_api_router
 from routers.costs_api import router as costs_api_router
+from routers.diagnostics_api import router as diagnostics_api_router
+from routers.standalone_calculator_api import router as standalone_calculator_router
 from routers.exports_api import router as exports_api_router
 from routers.inventory_api import router as inventory_api_router
 from routers.schedules_api import router as schedules_api_router
@@ -60,7 +62,31 @@ inventory_router = APIRouter(prefix="/api/clients", tags=["inventory"])
 
 
 def admin_api_enabled() -> bool:
-    return os.environ.get(ENV_ADMIN_API, "").strip().lower() in ("1", "true", "yes")
+    val = os.environ.get(ENV_ADMIN_API, "").strip().lower()
+    if val in ("0", "false", "no"):
+        return False           # deshabilitado explícitamente
+    if val in ("1", "true", "yes"):
+        return True            # habilitado explícitamente
+    # Auto-habilitar si DATABASE_URL está configurado (la base de datos implica uso multi-tenant)
+    return bool(os.environ.get("DATABASE_URL", "").strip())
+
+
+# ------------------------------------------------------------------- identidad
+@router.get("/whoami")
+def whoami(principal: Principal = Depends(get_principal)) -> Dict[str, Any]:
+    """Rol y permisos del principal autenticado (usado por el frontend).
+    Nunca incluye AK/SK ni ciphertexts.
+    """
+    from core.authz import can, Permission
+    return {
+        "subject": principal.subject,
+        "kind": principal.kind,
+        "platform_role": principal.platform_role,
+        "is_platform_admin": principal.is_platform_admin,
+        "can_delete_diagnostics": can(principal, Permission.DIAGNOSTICS_DELETE),
+        "can_manage_diagnostics": can(principal, Permission.DIAGNOSTICS_MANAGE),
+        "can_read_diagnostics": can(principal, Permission.DIAGNOSTICS_READ),
+    }
 
 
 # ------------------------------------------------------------------ clientes
@@ -277,6 +303,8 @@ def install_admin_api(app: FastAPI) -> None:
     app.include_router(calculator_api_router, dependencies=protected)
     app.include_router(servers_api_router, dependencies=protected)
     app.include_router(audit_api_router, dependencies=protected)
+    app.include_router(diagnostics_api_router, dependencies=protected)
+    app.include_router(standalone_calculator_router, dependencies=protected)
 
     @app.exception_handler(TenancyError)
     async def _tenancy(request: Request, exc: TenancyError):

@@ -13,6 +13,13 @@ Arranque:
 from __future__ import annotations
 
 from pathlib import Path
+
+# Cargar .env si existe (python-dotenv), sin sobreescribir variables ya definidas en el entorno.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=False)
+except ImportError:
+    pass
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
@@ -27,6 +34,7 @@ from core.observability import configure_logging
 from exports.excel import build_inventory_workbook, safe_filename_part, workbook_bytes
 from inventory import REGIONES, SERVICIOS, consultar_servicio
 from routers.admin import admin_api_enabled, install_admin_api
+from routers.ces_webhook import router as ces_webhook_router
 from routers.common import install_safe_validation_errors, inventory_response
 from routers.costs import router as costs_router
 from routers.middleware import install_middlewares
@@ -42,6 +50,7 @@ install_middlewares(app)  # request ID, cabeceras de seguridad, métricas, CORS 
 install_safe_validation_errors(app)
 app.include_router(system_router)
 app.include_router(costs_router)
+app.include_router(ces_webhook_router)  # público: SMN envía desde Huawei Cloud
 if admin_api_enabled():
     # API multi-cliente (PostgreSQL). Sin login todavía: solo para uso local.
     install_admin_api(app)
@@ -96,6 +105,27 @@ def servidores(request: Request):
 def clientes(request: Request):
     """Mis clientes (tenants) y su entorno Huawei Cloud (usa la API interna: INVENTORY_ADMIN_API=true)."""
     return templates.TemplateResponse(request, "clients.html", {})
+
+
+@app.get("/calculadora")
+def calculadora(request: Request):
+    """Calculadora de precios standalone (sin selección de cliente)."""
+    return templates.TemplateResponse(request, "calculator.html", {"standalone": True})
+
+
+@app.get("/diagnosticos")
+def diagnosticos(request: Request):
+    """Diagnósticos Cloud Eye (usa la API interna: INVENTORY_ADMIN_API=true)."""
+    try:
+        from routers.security import get_principal
+        from core.authz import can, Permission
+        principal = get_principal(request)
+        can_delete = can(principal, Permission.DIAGNOSTICS_DELETE)
+    except Exception:
+        can_delete = False
+    return templates.TemplateResponse(
+        request, "diagnostics.html", {"can_delete_diagnostics": can_delete}
+    )
 
 
 @app.post("/api/inventory")

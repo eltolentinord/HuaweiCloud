@@ -280,11 +280,18 @@ class TestCalculatorPage(unittest.TestCase):
         from fastapi.testclient import TestClient
         from app import app
         http = TestClient(app)
+        # legacy multi-tenant path still works
         page = http.get("/costos/calculadora").text
         for marker in ('data-product="ecs"', 'id="ecsFlavors"', 'id="list"', 'data-export="pdf"',
                        'src="/static/calculator.js?v='):
             self.assertIn(marker, page)
-        self.assertIn('href="/costos/calculadora"', http.get("/clientes").text)
+        # standalone path
+        standalone = http.get("/calculadora").text
+        self.assertIn('window._CALC_STANDALONE = true', standalone)
+        for marker in ('data-product="ecs"', 'id="ecsFlavors"'):
+            self.assertIn(marker, standalone)
+        # sidebar now links to standalone /calculadora
+        self.assertIn('href="/calculadora"', http.get("/clientes").text)
         script = http.get("/static/calculator.js").text
         for marker in ("/calculator", "/prices/refresh", "function esc("):
             self.assertIn(marker, script)
