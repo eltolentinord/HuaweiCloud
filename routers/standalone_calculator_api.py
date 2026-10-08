@@ -23,7 +23,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -64,6 +64,27 @@ class ItemsIn(BaseModel):
     items: List[Dict[str, Any]] = Field(..., min_length=1, max_length=MAX_ITEMS)
 
 
+class CredentialsIn(BaseModel):
+    ak: str = Field(..., min_length=1, max_length=100)
+    sk: str = Field(..., min_length=1, max_length=200)
+    project_id: str = Field(..., min_length=1, max_length=64)
+
+
+class ConnectIn(BaseModel):
+    ak: str = Field(..., min_length=1, max_length=100)
+    sk: str = Field(..., min_length=1, max_length=200)
+    region: str = Field(..., min_length=1, max_length=64)
+
+
+class ItemsWithCredsIn(BaseModel):
+    items: List[Dict[str, Any]] = Field(..., min_length=1, max_length=MAX_ITEMS)
+    credentials: Optional[CredentialsIn] = None
+
+
+class CredsBodyIn(BaseModel):
+    credentials: Optional[CredentialsIn] = None
+
+
 # ---------------------------------------------------------------- helpers
 
 def _items(db: Session, payloads: List[Dict[str, Any]]) -> List[CalcItem]:
@@ -92,6 +113,23 @@ def _auto_clients(db: Session, cipher: SecretCipher, region: str):
         except Exception:
             continue
     return None, None
+
+
+class _ProjectStub:
+    """Minimal project-like object carrying only the project_id."""
+    def __init__(self, project_id: str) -> None:
+        self.huawei_project_id = project_id
+
+
+def _clients_or_auto(
+    db: Session, cipher: SecretCipher, region: str, creds: Optional[CredentialsIn]
+) -> Tuple[Optional[ClientFactory], Any]:
+    """Returns (ClientFactory, project) from user-provided credentials or auto-discovery."""
+    if creds:
+        from core.credentials import HuaweiCredentials
+        c = HuaweiCredentials(ak=creds.ak, sk=creds.sk)
+        return ClientFactory(c), _ProjectStub(creds.project_id)
+    return _auto_clients(db, cipher, region)
 
 
 def _has_project_for_region(db: Session, region: str) -> bool:
@@ -185,14 +223,43 @@ def export(body: ItemsIn, format: str = Query("xlsx", pattern="^(xlsx|pdf|csv)$"
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
+# ---------------------------------------------------------------- connect: valida AK/SK y resuelve project_id
+
+@router.post("/connect", dependencies=CALLS_HUAWEI)
+def connect(body: ConnectIn, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Valida credenciales AK/SK contra IAM y devuelve el project_id de la región pedida."""
+    from core.credentials import HuaweiCredentials
+    from core.discovery import IamProjectSource
+
+    if body.region not in {r.id for r in _regions(db)}:
+        return {"ok": False, "error": f"Región desconocida: {body.region}"}
+
+    creds = HuaweiCredentials(ak=body.ak, sk=body.sk)
+    clients = ClientFactory(creds)
+    try:
+        projects = IamProjectSource(clients, region_id=body.region).list_projects()
+    except Exception as exc:
+        error = classify_exception(exc, service="iam", region=body.region, secrets=creds.secrets)
+        return {"ok": False, "error": error.message}
+
+    matching = [p for p in projects if p.name == body.region]
+    if not matching:
+        available = sorted({p.name for p in projects})[:5]
+        hint = f" Regiones disponibles en esta cuenta: {', '.join(available)}." if available else ""
+        return {"ok": False, "error": f"Esta cuenta no tiene proyecto en la región {body.region}.{hint}"}
+
+    best = matching[0]
+    return {"ok": True, "project_id": best.id, "domain_id": best.domain_id or ""}
+
+
 # ---------------------------------------------------------------- refresh con auto-credenciales
 
 @router.post("/prices/refresh", dependencies=CALLS_HUAWEI)
-def refresh_prices(body: ItemsIn, db: Session = Depends(get_db),
+def refresh_prices(body: ItemsWithCredsIn, db: Session = Depends(get_db),
                    cipher: SecretCipher = Depends(get_cipher),
                    actor: Principal = Depends(get_principal)):
-    """Consulta precios oficiales a Huawei BSS usando la primera cuenta activa con proyecto
-    en cada región. Mismo resultado que la calculadora oficial de Huawei Cloud."""
+    """Consulta precios oficiales a Huawei BSS usando credenciales explícitas o la primera
+    cuenta activa con proyecto en cada región."""
     items = _items(db, body.items)
     wanted = quotable(items)
     if sum(len(c) for c in wanted.values()) > MAX_QUOTES_PER_REFRESH:
@@ -200,33 +267,40 @@ def refresh_prices(body: ItemsIn, db: Session = Depends(get_db),
     store = PriceCatalog(db)
     stored, failures = 0, []
     for (region, mode), components in sorted(wanted.items()):
-        clients, project = _auto_clients(db, cipher, region)
+        clients, project = _clients_or_auto(db, cipher, region, body.credentials)
         if project is None:
             failures += [{"component": c.label, "region": region,
                           "reason": "Sin cuenta activa con proyecto en esta región."} for c in components]
             continue
-        quotes, failed = huawei_pricing.fetch_quotes(
-            clients, project_id=project.huawei_project_id, region=region,
-            components=components, billing_mode=mode,
-            client_builder=huawei_pricing.default_bss_builder)
-        stored += store.store(quotes)
-        failures += failed
+        try:
+            quotes, failed = huawei_pricing.fetch_quotes(
+                clients, project_id=project.huawei_project_id, region=region,
+                components=components, billing_mode=mode,
+                client_builder=huawei_pricing.default_bss_builder)
+            stored += store.store(quotes)
+            failures += failed
+        except Exception as exc:
+            error = classify_exception(exc, service="bss", region=region, secrets=clients.secrets)
+            failures += [{"component": c.label, "region": region,
+                          "reason": error.message} for c in components]
     return {"stored": stored, "failures": failures}
 
 
 @router.post("/flavors/refresh", dependencies=CALLS_HUAWEI)
 def refresh_flavors(region: Optional[str] = Query(None, max_length=64),
+                    body: Optional[CredsBodyIn] = Body(None),
                     db: Session = Depends(get_db), cipher: SecretCipher = Depends(get_cipher),
                     actor: Principal = Depends(get_principal)) -> Dict[str, Any]:
-    """Trae los flavors ECS de Huawei Cloud usando la primera cuenta activa con proyecto
-    en cada región (o en la región indicada)."""
+    """Trae los flavors ECS de Huawei Cloud usando credenciales explícitas o la primera
+    cuenta activa con proyecto en cada región (o en la región indicada)."""
     all_regions = _regions(db)
     targets = [r for r in all_regions if r.id == region] if region else all_regions
     if region and not targets:
         raise ValidationFailedError("Región desconocida.")
+    creds = body.credentials if body else None
     store, now, stored_map, failures = PriceCatalog(db), datetime.now(timezone.utc), {}, []
     for r in targets:
-        clients, project = _auto_clients(db, cipher, r.id)
+        clients, project = _clients_or_auto(db, cipher, r.id, creds)
         if project is None:
             failures.append({"region": r.id, "reason": "Sin cuenta activa con proyecto en esta región."})
             continue
@@ -243,13 +317,15 @@ def refresh_flavors(region: Optional[str] = Query(None, max_length=64),
 
 @router.post("/catalog/refresh", dependencies=CALLS_HUAWEI)
 def refresh_catalog(region: str = Query(..., max_length=64),
+                    body: Optional[CredsBodyIn] = Body(None),
                     db: Session = Depends(get_db), cipher: SecretCipher = Depends(get_cipher),
                     actor: Principal = Depends(get_principal)) -> Dict[str, Any]:
     """Consulta a Huawei los flavors (ECS) y tipos de disco (EVS) de la región,
-    usando la primera cuenta activa con proyecto en ella."""
+    usando credenciales explícitas o la primera cuenta activa con proyecto en ella."""
     if region not in {r.id for r in _regions(db)}:
         raise ValidationFailedError("Región desconocida.")
-    clients, project = _auto_clients(db, cipher, region)
+    creds = body.credentials if body else None
+    clients, project = _clients_or_auto(db, cipher, region, creds)
     if project is None:
         raise ValidationFailedError(f"Sin cuenta activa con proyecto en {region}.")
     store, now = PriceCatalog(db), datetime.now(timezone.utc)

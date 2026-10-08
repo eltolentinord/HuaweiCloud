@@ -7,9 +7,16 @@
 
   const $ = (id) => document.getElementById(id);
   const LIST_KEY = "hc_calculator_list_v1";
+  const CREDS_KEY = "hc_calc_creds_v1";
   const STANDALONE = !!(window._CALC_STANDALONE);
+
+  function loadCreds() { try { const r = sessionStorage.getItem(CREDS_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
+  function saveCreds(c) { try { sessionStorage.setItem(CREDS_KEY, JSON.stringify(c)); } catch (e) {} }
+  function clearCreds() { try { sessionStorage.removeItem(CREDS_KEY); } catch (e) {} st.creds = null; }
+
   const st = { clientId: "", accountId: "", options: null, region: "", product: "ecs", flavor: "", disks: [],
-    seq: 0, timer: null, editing: null, list: loadList() };
+    seq: 0, timer: null, editing: null, list: loadList(),
+    creds: STANDALONE ? loadCreds() : null };
 
   /* ---------- utilidades ---------- */
   function esc(value) {
@@ -58,6 +65,46 @@
   }
   const calc = () => STANDALONE ? "/api/calculator" : `${base()}/calculator`;
   const regionName = (id) => { const r = st.options && st.options.regions.find((x) => x.id === id); return r ? (r.name || r.id) : id; };
+
+  function credsPayload() {
+    if (!STANDALONE || !st.creds || !st.creds.projectId) return {};
+    return { credentials: { ak: st.creds.ak, sk: st.creds.sk, project_id: st.creds.projectId } };
+  }
+
+  function renderCredsPanel() {
+    if (!STANDALONE || !$("credsPanel")) return;
+    const connected = !!(st.creds && st.creds.projectId && st.creds.region === st.region);
+    $("credsForm").classList.toggle("hidden", connected);
+    $("credsConnected").classList.toggle("hidden", !connected);
+    if (connected) {
+      $("credsProjectId").textContent = st.creds.projectId;
+      $("credsStatus").textContent = "Conectado";
+      $("credsStatus").className = "ml-auto text-xs text-emerald-600 dark:text-emerald-400 font-medium";
+    } else {
+      if (st.creds && st.creds.ak) $("credAk").value = st.creds.ak;
+      $("credsStatus").textContent = (st.creds && st.creds.ak) ? "Credenciales guardadas · sin conectar" : "Sin conectar";
+      $("credsStatus").className = "ml-auto text-xs text-slate-400";
+    }
+  }
+
+  async function tryConnect(ak, sk, region, silent) {
+    try {
+      const r = await json("/api/calculator/connect", { method: "POST", body: JSON.stringify({ ak, sk, region }) });
+      if (r.ok) {
+        st.creds = { ak, sk, projectId: r.project_id, region };
+        saveCreds(st.creds);
+        renderCredsPanel();
+        if (!silent) notify(`Conectado a Huawei Cloud. Proyecto: <code class="font-mono">${esc(r.project_id)}</code>`, "ok");
+        return true;
+      } else {
+        if (!silent) notify(`No se pudo conectar: ${esc(r.error)}`);
+        return false;
+      }
+    } catch (err) {
+      if (!silent) notify(`Error al conectar: ${esc(err.message)}`);
+      return false;
+    }
+  }
   const modeInfo = (id) => st.options.modes.find((m) => m.id === id);
 
   function loadList() { try { return JSON.parse(localStorage.getItem(LIST_KEY) || "[]").slice(0, 50); } catch (e) { return []; } }
@@ -67,6 +114,24 @@
   function applyTheme(dark) { document.documentElement.classList.toggle("dark", dark); try { localStorage.setItem("hc_theme", dark ? "dark" : "light"); } catch (e) {} }
   try { applyTheme(localStorage.getItem("hc_theme") === "dark"); } catch (e) {}
   $("btnDark").addEventListener("click", () => applyTheme(!document.documentElement.classList.contains("dark")));
+
+  /* ---------- credenciales IAM (modo standalone) ---------- */
+  if (STANDALONE && $("btnConnect")) {
+    $("btnConnect").addEventListener("click", async () => {
+      const ak = $("credAk").value.trim(), sk = $("credSk").value.trim();
+      if (!ak || !sk) { notify("Ingresa AK y SK.", "info"); return; }
+      if (!st.region) { notify("Selecciona una región primero.", "info"); return; }
+      $("btnConnect").disabled = true;
+      const ok = await tryConnect(ak, sk, st.region, false);
+      if (ok) $("credSk").value = "";
+      $("btnConnect").disabled = false;
+    });
+    $("btnDisconnect").addEventListener("click", () => {
+      clearCreds();
+      renderCredsPanel();
+      notify("Credenciales eliminadas de la sesión.", "info");
+    });
+  }
 
   /* ---------- cliente / cuenta ---------- */
   async function loadClients() {
@@ -140,7 +205,13 @@
     });
   }
 
-  $("region").addEventListener("change", () => { st.region = $("region").value; st.flavor = ""; loadOptions(false).catch((e) => notify(esc(e.message))); });
+  $("region").addEventListener("change", () => {
+    st.region = $("region").value; st.flavor = "";
+    if (STANDALONE && st.creds && st.creds.ak) {
+      tryConnect(st.creds.ak, st.creds.sk || "", st.region, true).catch(() => {});
+    }
+    loadOptions(false).catch((e) => notify(esc(e.message)));
+  });
   $("billingMode").addEventListener("change", () => { fillDuration(); loadOptions(false).catch((e) => notify(esc(e.message))); });
   $("ecsOs").addEventListener("change", () => loadOptions(false).catch((e) => notify(esc(e.message))));
   ["duration", "quantity", "sysType", "sysSize", "evsType", "evsSize"].forEach((id) => $(id).addEventListener("input", scheduleQuote));
@@ -280,7 +351,7 @@
 
   function scheduleQuote() { clearTimeout(st.timer); st.timer = setTimeout(() => quote().catch(() => {}), 250); }
   async function quote() {
-    if (!st.accountId || !st.options) return;
+    if (!(STANDALONE || st.accountId) || !st.options) return;
     const item = currentItem();
     if (item.product === "ecs" && !item.config.flavor) {
       $("quoteTotal").textContent = "—"; $("quoteSub").textContent = "Elige un flavor en la tabla."; $("quoteDetail").innerHTML = ""; return;
@@ -311,7 +382,11 @@
   }
   async function refresh(items, button) {
     button.disabled = true;
-    try { showFailures(await json(`${calc()}/prices/refresh`, { method: "POST", body: JSON.stringify({ items }) })); await loadOptions(false); renderList(); }
+    try {
+      const body = Object.assign({ items }, credsPayload());
+      showFailures(await json(`${calc()}/prices/refresh`, { method: "POST", body: JSON.stringify(body) }));
+      await loadOptions(false); renderList();
+    }
     catch (err) { notify(err.status === 403 ? "Tu rol no permite consultar a Huawei (requiere operador)." : esc(err.message)); }
     finally { button.disabled = false; }
   }
@@ -333,7 +408,7 @@
   $("btnCatalog").addEventListener("click", async () => {
     $("btnCatalog").disabled = true;
     try {
-      const r = await json(catalogRefreshUrl(), { method: "POST" });
+      const r = await json(catalogRefreshUrl(), { method: "POST", body: JSON.stringify(credsPayload()) });
       const errs = (r.errors || []).map((e) => `<li>${esc(String(e.servicio || "").toUpperCase())}: ${esc(e.mensaje || e.message || "error")}${e.accion_iam ? ` (acción IAM ${esc(e.accion_iam)})` : ""}${e.request_id ? ` · Request ID ${esc(e.request_id)}` : ""}</li>`).join("");
       notify(`Catálogo actualizado: ${r.flavors ?? 0} flavors, ${r.volume_types ?? 0} tipos de disco.${errs ? `<ul class="mt-2 list-disc pl-5">${errs}</ul>` : ""}`, errs ? "info" : "ok");
       await loadOptions(false);
@@ -343,7 +418,7 @@
   $("btnRefreshFlavors").addEventListener("click", async () => {
     $("btnRefreshFlavors").disabled = true;
     try {
-      const r = await json(`${calc()}/flavors/refresh?region=${encodeURIComponent(st.region)}`, { method: "POST" });
+      const r = await json(`${calc()}/flavors/refresh?region=${encodeURIComponent(st.region)}`, { method: "POST", body: JSON.stringify(credsPayload()) });
       const errs = (r.failures || []).map((f) => `<li>${esc(f.region || "desconocida")}: ${esc(f.reason || f.error || "error")}${f.error_code ? ` (${esc(f.error_code)})` : ""}</li>`).join("");
       const stored = Object.values(r.stored || {}).reduce((a, b) => a + b, 0);
       notify(`${stored} flavors guardado(s).${errs ? `<ul class="mt-2 list-disc pl-5">${errs}</ul>` : ""}`, errs && !stored ? "info" : "ok");
@@ -433,7 +508,13 @@
   renderDisks();
   icons();
   if (STANDALONE) {
-    loadOptions(true).then(renderList).catch((e) => notify(esc(e.message)));
+    loadOptions(true).then(() => {
+      renderCredsPanel();
+      if (st.creds && st.creds.ak && st.creds.sk && st.creds.region !== st.region) {
+        tryConnect(st.creds.ak, st.creds.sk, st.region, true).catch(() => {});
+      }
+      renderList();
+    }).catch((e) => notify(esc(e.message)));
   } else {
     loadClients().catch((e) => notify(esc(e.message)));
   }
