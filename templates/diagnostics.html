@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diagnósticos CES · Huawei Cloud Inventory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } } };</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261007" />
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="h-full app-body font-sans antialiased">
+  <div class="flex h-full">
+    {% with active="diagnosticos" %}{% include "_sidebar.html" %}{% endwith %}
+
+    <div class="flex-1 flex flex-col min-w-0">
+      {% include "_mobile_nav.html" %}
+
+      <header class="app-header px-4 md:px-6 py-3">
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="mr-auto min-w-0 w-full sm:w-auto">
+            <nav class="crumbs" aria-label="Ruta">
+              <a href="/clientes">Inicio</a>
+              <i data-lucide="chevron-right" class="w-3 h-3"></i>
+              <span class="text-slate-700 dark:text-slate-300">Diagnósticos CES</span>
+            </nav>
+            <h1 class="text-base font-bold leading-tight text-slate-900 dark:text-white">Diagnósticos Cloud Eye</h1>
+          </div>
+          <label class="field w-full sm:w-44">
+            Cliente<select id="clientSelect" class="input"></select>
+          </label>
+          <div class="flex items-center gap-2">
+            <button id="btnRefresh" title="Actualizar" class="icon-btn"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+            <button id="btnDark" title="Modo claro/oscuro" class="icon-btn"><i data-lucide="moon" class="w-4 h-4"></i></button>
+          </div>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto">
+        <div class="max-w-screen-2xl mx-auto p-4 md:p-6 space-y-5">
+          <div id="alerts" class="space-y-3"></div>
+
+          <!-- Panel de lista -->
+          <div id="listView">
+            <!-- Filtros -->
+            <div class="flex flex-wrap gap-3 mb-4 items-end">
+              <label class="field w-40">
+                Estado
+                <select id="filterStatus" class="input">
+                  <option value="">Todos</option>
+                  <option value="alert_received">Recibido</option>
+                  <option value="validating">Validando</option>
+                  <option value="pending_diagnosis">En cola</option>
+                  <option value="connecting">Conectando</option>
+                  <option value="analyzing">Analizando</option>
+                  <option value="generating_report">Generando informe</option>
+                  <option value="report_available">Informe disponible</option>
+                  <option value="no_server">Sin servidor</option>
+                  <option value="failed">Error</option>
+                  <option value="recovered">Recuperado</option>
+                </select>
+              </label>
+              <button id="btnApplyFilter" class="btn-primary h-9">Filtrar</button>
+            </div>
+
+            <div id="incidentList" class="space-y-3"></div>
+            <div id="listEmpty" class="hidden text-center py-16 text-slate-400">
+              <i data-lucide="inbox" class="w-10 h-10 mx-auto mb-3"></i>
+              <p>No hay diagnósticos para este cliente.</p>
+            </div>
+            <div id="listLoading" class="text-center py-10 text-slate-400">
+              <i data-lucide="loader" class="w-6 h-6 mx-auto animate-spin"></i>
+            </div>
+            <div id="paginationBar" class="hidden flex justify-center gap-2 mt-4">
+              <button id="btnPrev" class="btn-secondary">← Anterior</button>
+              <span id="pageInfo" class="self-center text-sm text-slate-500"></span>
+              <button id="btnNext" class="btn-secondary">Siguiente →</button>
+            </div>
+          </div>
+
+          <!-- Panel de detalle -->
+          <div id="detailView" class="hidden space-y-5">
+            <button id="btnBack" class="btn-secondary flex items-center gap-1">
+              <i data-lucide="arrow-left" class="w-4 h-4"></i> Volver a la lista
+            </button>
+
+            <div class="card p-5 space-y-4">
+              <div class="flex flex-wrap items-start gap-3">
+                <div class="flex-1 min-w-0">
+                  <h2 id="detailTitle" class="font-bold text-base"></h2>
+                  <p id="detailMeta" class="text-xs text-slate-500 mt-1"></p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span id="detailStatusBadge"></span>
+                  <a id="btnDownloadPdf" class="hidden btn-secondary flex items-center gap-1" href="#" target="_blank">
+                    <i data-lucide="file-text" class="w-4 h-4"></i>PDF
+                  </a>
+                  <!-- Botón eliminar (solo admin) -->
+                  <button id="btnDelete" class="hidden bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>Eliminar
+                  </button>
+                </div>
+              </div>
+
+              <!-- Tabs -->
+              <nav id="detailTabs" class="flex gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto" role="tablist">
+                <button data-dtab="resumen"     class="tab">Resumen</button>
+                <button data-dtab="alarma"      class="tab">Alarma</button>
+                <button data-dtab="diagnostico" class="tab">Diagnóstico</button>
+                <button data-dtab="evidencias"  class="tab">Evidencias</button>
+                <button data-dtab="comandos"    class="tab">Comandos</button>
+              </nav>
+
+              <div id="dtab-resumen"     class="detail-panel space-y-3"></div>
+              <div id="dtab-alarma"      class="detail-panel hidden space-y-3"></div>
+              <div id="dtab-diagnostico" class="detail-panel hidden space-y-3"></div>
+              <div id="dtab-evidencias"  class="detail-panel hidden space-y-3"></div>
+              <div id="dtab-comandos"    class="detail-panel hidden space-y-3"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal de confirmación de eliminación -->
+  <div id="deleteModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4">
+      <!-- Cabecera -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 grid place-items-center shrink-0">
+          <i data-lucide="alert-triangle" class="w-5 h-5 text-red-600"></i>
+        </div>
+        <div>
+          <h3 id="deleteModalTitle" class="font-bold text-base">Eliminar diagnóstico</h3>
+          <p class="text-xs text-slate-500">Esta acción no se puede deshacer.</p>
+        </div>
+      </div>
+
+      <!-- Aviso principal -->
+      <p class="text-sm text-slate-600 dark:text-slate-400">
+        ¿Está seguro de que desea eliminar este diagnóstico de la plataforma?
+      </p>
+      <p class="text-sm text-slate-600 dark:text-slate-400">
+        Esta acción eliminará el incidente, el reporte PDF y las evidencias almacenadas.
+        <strong>No afectará la ECS, la alarma de Cloud Eye ni ningún recurso de Huawei Cloud.</strong>
+      </p>
+
+      <!-- Info del incidente a eliminar -->
+      <div id="deleteIncidentInfo" class="hidden pt-3 border-t border-slate-200 dark:border-slate-700 text-sm space-y-2">
+        <p class="text-xs font-semibold text-slate-500 tracking-wide">Diagnóstico seleccionado</p>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-2">
+          <span class="text-slate-500">ECS:</span>         <span id="di-ecs"    class="font-medium truncate">—</span>
+          <span class="text-slate-500">Cliente:</span>     <span id="di-client" class="font-medium truncate">—</span>
+          <span class="text-slate-500">Región:</span>      <span id="di-region" class="font-medium">—</span>
+          <span class="text-slate-500">Tipo alarma:</span> <span id="di-type"   class="font-medium">—</span>
+          <span class="text-slate-500">Métrica:</span>     <span id="di-metric" class="font-medium">—</span>
+          <span class="text-slate-500">Fecha alarma:</span><span id="di-date"   class="font-medium">—</span>
+        </div>
+      </div>
+
+      <!-- Motivo (opcional) -->
+      <label class="field">
+        Motivo de la eliminación (opcional)
+        <input id="deleteReason" type="text" class="input" placeholder="Ej: diagnóstico duplicado, falsa alarma" maxlength="500" />
+      </label>
+
+      <!-- Botones -->
+      <div class="flex justify-end gap-2">
+        <button id="btnDeleteCancel" class="btn-secondary">Cancelar</button>
+        <button id="btnDeleteConfirm"
+                class="bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+          <span id="btnDeleteConfirmLabel">Eliminar diagnóstico</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>window._CAN_DELETE_DIAGNOSTICS = {{ can_delete_diagnostics | tojson }};</script>
+  <script src="/static/diagnostics.js?v=20261007d"></script>
+</body>
+</html>

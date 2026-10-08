@@ -30,8 +30,10 @@ EXPECTED_TABLES = {"alembic_version", "clients", "users", "user_client_roles", "
                    "resource_changes", "scan_schedules",
                    "audit_events", "price_catalog_entries", "flavor_catalog", "enterprise_projects",
                    "volume_type_catalog", "rds_flavor_catalog", "bss_code_catalog",
-                   "servers", "server_audit_runs"}
-HEAD = "0012"
+                   "servers", "server_audit_runs",
+                   "ces_alarm_events", "diagnostic_incidents", "diagnostic_commands",
+                   "diagnostic_evidence", "diagnostic_audit_logs"}
+HEAD = "0013"
 
 
 def alembic_config(url: str) -> Config:
